@@ -121,6 +121,8 @@ def setup_logging() -> logging.Logger:
     ch = logging.StreamHandler(sys.stdout)
     ch.setFormatter(fmt)
     logger = logging.getLogger("multi_scalper")
+    if logger.handlers:
+        return logger
     logger.setLevel(logging.DEBUG)
     logger.addHandler(fh)
     logger.addHandler(ch)
