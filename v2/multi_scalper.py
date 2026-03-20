@@ -118,15 +118,11 @@ def setup_logging() -> logging.Logger:
     )
     fh = logging.FileHandler(LOG_PATH, encoding="utf-8")
     fh.setFormatter(fmt)
-    ch = logging.StreamHandler(sys.stdout)
-    ch.setFormatter(fmt)
     logger = logging.getLogger("multi_scalper")
     if logger.handlers:
         return logger
     logger.setLevel(logging.DEBUG)
     logger.addHandler(fh)
-    if sys.stdout.isatty():
-        logger.addHandler(ch)
     logger.propagate = False
     return logger
 
@@ -166,6 +162,10 @@ def init_db(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute(CREATE_TABLE_SQL)
+    # Migrate: add series column if missing (old bracket_scalper.py schema)
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(bracket_trade_log)")}
+    if "series" not in cols:
+        conn.execute("ALTER TABLE bracket_trade_log ADD COLUMN series TEXT NOT NULL DEFAULT ''")
     conn.commit()
     return conn
 
