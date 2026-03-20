@@ -74,7 +74,7 @@ ENTRY_CENTS       = 36
 TAKE_PROFIT_CENTS = 56
 STOP_LOSS_CENTS   = 20
 TIME_STOP_SECONDS = 180   # exit at mid if <=3 min remaining
-FILL_WINDOW_SECONDS = 60  # cancel if no fill within 1 min
+FILL_WINDOW_SECONDS = 300  # cancel if no fill within 5 min
 CONTRACTS         = 1
 
 MARKET_POLL_INTERVAL = 2   # seconds between contract detection polls
