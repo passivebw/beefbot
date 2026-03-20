@@ -125,7 +125,8 @@ def setup_logging() -> logging.Logger:
         return logger
     logger.setLevel(logging.DEBUG)
     logger.addHandler(fh)
-    logger.addHandler(ch)
+    if sys.stdout.isatty():
+        logger.addHandler(ch)
     logger.propagate = False
     return logger
 
