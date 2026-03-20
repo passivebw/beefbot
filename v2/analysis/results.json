@@ -1,0 +1,981 @@
+[
+  {
+    "series": "KXBTC15M",
+    "count": 3094,
+    "overall_yes_rate": 0.508,
+    "hour_analysis": {
+      "1": {
+        "count": 130,
+        "yes_rate": 0.546
+      },
+      "0": {
+        "count": 132,
+        "yes_rate": 0.492
+      },
+      "23": {
+        "count": 132,
+        "yes_rate": 0.477
+      },
+      "22": {
+        "count": 132,
+        "yes_rate": 0.439
+      },
+      "21": {
+        "count": 132,
+        "yes_rate": 0.553
+      },
+      "20": {
+        "count": 132,
+        "yes_rate": 0.523
+      },
+      "19": {
+        "count": 132,
+        "yes_rate": 0.523
+      },
+      "18": {
+        "count": 132,
+        "yes_rate": 0.515
+      },
+      "17": {
+        "count": 132,
+        "yes_rate": 0.5
+      },
+      "16": {
+        "count": 132,
+        "yes_rate": 0.523
+      },
+      "15": {
+        "count": 132,
+        "yes_rate": 0.523
+      },
+      "14": {
+        "count": 132,
+        "yes_rate": 0.523
+      },
+      "13": {
+        "count": 132,
+        "yes_rate": 0.515
+      },
+      "12": {
+        "count": 132,
+        "yes_rate": 0.523
+      },
+      "11": {
+        "count": 132,
+        "yes_rate": 0.455
+      },
+      "10": {
+        "count": 132,
+        "yes_rate": 0.523
+      },
+      "9": {
+        "count": 124,
+        "yes_rate": 0.589
+      },
+      "5": {
+        "count": 128,
+        "yes_rate": 0.469
+      },
+      "4": {
+        "count": 128,
+        "yes_rate": 0.516
+      },
+      "3": {
+        "count": 128,
+        "yes_rate": 0.453
+      },
+      "2": {
+        "count": 128,
+        "yes_rate": 0.445
+      },
+      "8": {
+        "count": 116,
+        "yes_rate": 0.517
+      },
+      "7": {
+        "count": 112,
+        "yes_rate": 0.554
+      },
+      "6": {
+        "count": 120,
+        "yes_rate": 0.508
+      }
+    },
+    "price_buckets": {},
+    "bracket_by_entry": {
+      "25": {
+        "count": 0
+      },
+      "30": {
+        "count": 0
+      },
+      "35": {
+        "count": 0
+      },
+      "36": {
+        "count": 0
+      },
+      "40": {
+        "count": 0
+      },
+      "45": {
+        "count": 0
+      },
+      "50": {
+        "count": 0
+      },
+      "55": {
+        "count": 0
+      },
+      "60": {
+        "count": 0
+      },
+      "65": {
+        "count": 0
+      },
+      "70": {
+        "count": 0
+      }
+    },
+    "momentum": {},
+    "volatility": {
+      "avg_swing": 10.9,
+      "pct_swing_20": 0.159,
+      "price_coverage": "0/3094"
+    }
+  },
+  {
+    "series": "KXETH15M",
+    "count": 3094,
+    "overall_yes_rate": 0.507,
+    "hour_analysis": {
+      "1": {
+        "count": 130,
+        "yes_rate": 0.531
+      },
+      "0": {
+        "count": 132,
+        "yes_rate": 0.492
+      },
+      "23": {
+        "count": 132,
+        "yes_rate": 0.477
+      },
+      "22": {
+        "count": 132,
+        "yes_rate": 0.477
+      },
+      "21": {
+        "count": 132,
+        "yes_rate": 0.576
+      },
+      "20": {
+        "count": 132,
+        "yes_rate": 0.576
+      },
+      "19": {
+        "count": 132,
+        "yes_rate": 0.515
+      },
+      "18": {
+        "count": 132,
+        "yes_rate": 0.439
+      },
+      "17": {
+        "count": 132,
+        "yes_rate": 0.477
+      },
+      "16": {
+        "count": 132,
+        "yes_rate": 0.53
+      },
+      "15": {
+        "count": 132,
+        "yes_rate": 0.568
+      },
+      "14": {
+        "count": 132,
+        "yes_rate": 0.523
+      },
+      "13": {
+        "count": 132,
+        "yes_rate": 0.492
+      },
+      "12": {
+        "count": 132,
+        "yes_rate": 0.492
+      },
+      "11": {
+        "count": 132,
+        "yes_rate": 0.462
+      },
+      "10": {
+        "count": 132,
+        "yes_rate": 0.492
+      },
+      "9": {
+        "count": 124,
+        "yes_rate": 0.548
+      },
+      "5": {
+        "count": 128,
+        "yes_rate": 0.516
+      },
+      "4": {
+        "count": 128,
+        "yes_rate": 0.508
+      },
+      "3": {
+        "count": 128,
+        "yes_rate": 0.484
+      },
+      "2": {
+        "count": 128,
+        "yes_rate": 0.484
+      },
+      "8": {
+        "count": 116,
+        "yes_rate": 0.491
+      },
+      "7": {
+        "count": 112,
+        "yes_rate": 0.536
+      },
+      "6": {
+        "count": 120,
+        "yes_rate": 0.483
+      }
+    },
+    "price_buckets": {},
+    "bracket_by_entry": {
+      "25": {
+        "count": 0
+      },
+      "30": {
+        "count": 0
+      },
+      "35": {
+        "count": 0
+      },
+      "36": {
+        "count": 0
+      },
+      "40": {
+        "count": 0
+      },
+      "45": {
+        "count": 0
+      },
+      "50": {
+        "count": 0
+      },
+      "55": {
+        "count": 0
+      },
+      "60": {
+        "count": 0
+      },
+      "65": {
+        "count": 0
+      },
+      "70": {
+        "count": 0
+      }
+    },
+    "momentum": {},
+    "volatility": {
+      "avg_swing": 10.8,
+      "pct_swing_20": 0.159,
+      "price_coverage": "0/3094"
+    }
+  },
+  {
+    "series": "KXSOL15M",
+    "count": 3094,
+    "overall_yes_rate": 0.509,
+    "hour_analysis": {
+      "1": {
+        "count": 130,
+        "yes_rate": 0.5
+      },
+      "0": {
+        "count": 132,
+        "yes_rate": 0.538
+      },
+      "23": {
+        "count": 132,
+        "yes_rate": 0.492
+      },
+      "22": {
+        "count": 132,
+        "yes_rate": 0.485
+      },
+      "21": {
+        "count": 132,
+        "yes_rate": 0.568
+      },
+      "20": {
+        "count": 132,
+        "yes_rate": 0.561
+      },
+      "19": {
+        "count": 132,
+        "yes_rate": 0.492
+      },
+      "18": {
+        "count": 132,
+        "yes_rate": 0.598
+      },
+      "17": {
+        "count": 132,
+        "yes_rate": 0.455
+      },
+      "16": {
+        "count": 132,
+        "yes_rate": 0.538
+      },
+      "15": {
+        "count": 132,
+        "yes_rate": 0.53
+      },
+      "14": {
+        "count": 132,
+        "yes_rate": 0.53
+      },
+      "13": {
+        "count": 132,
+        "yes_rate": 0.492
+      },
+      "12": {
+        "count": 132,
+        "yes_rate": 0.492
+      },
+      "11": {
+        "count": 132,
+        "yes_rate": 0.447
+      },
+      "10": {
+        "count": 132,
+        "yes_rate": 0.485
+      },
+      "9": {
+        "count": 124,
+        "yes_rate": 0.548
+      },
+      "5": {
+        "count": 128,
+        "yes_rate": 0.445
+      },
+      "4": {
+        "count": 128,
+        "yes_rate": 0.508
+      },
+      "3": {
+        "count": 128,
+        "yes_rate": 0.422
+      },
+      "2": {
+        "count": 128,
+        "yes_rate": 0.531
+      },
+      "8": {
+        "count": 116,
+        "yes_rate": 0.483
+      },
+      "7": {
+        "count": 112,
+        "yes_rate": 0.536
+      },
+      "6": {
+        "count": 120,
+        "yes_rate": 0.533
+      }
+    },
+    "price_buckets": {},
+    "bracket_by_entry": {
+      "25": {
+        "count": 0
+      },
+      "30": {
+        "count": 0
+      },
+      "35": {
+        "count": 0
+      },
+      "36": {
+        "count": 0
+      },
+      "40": {
+        "count": 0
+      },
+      "45": {
+        "count": 0
+      },
+      "50": {
+        "count": 0
+      },
+      "55": {
+        "count": 0
+      },
+      "60": {
+        "count": 0
+      },
+      "65": {
+        "count": 0
+      },
+      "70": {
+        "count": 0
+      }
+    },
+    "momentum": {},
+    "volatility": {
+      "avg_swing": 10.8,
+      "pct_swing_20": 0.159,
+      "price_coverage": "0/3094"
+    }
+  },
+  {
+    "series": "KXXRP15M",
+    "count": 3094,
+    "overall_yes_rate": 0.486,
+    "hour_analysis": {
+      "1": {
+        "count": 130,
+        "yes_rate": 0.531
+      },
+      "0": {
+        "count": 132,
+        "yes_rate": 0.5
+      },
+      "23": {
+        "count": 132,
+        "yes_rate": 0.485
+      },
+      "22": {
+        "count": 132,
+        "yes_rate": 0.485
+      },
+      "21": {
+        "count": 132,
+        "yes_rate": 0.538
+      },
+      "20": {
+        "count": 132,
+        "yes_rate": 0.477
+      },
+      "19": {
+        "count": 132,
+        "yes_rate": 0.447
+      },
+      "18": {
+        "count": 132,
+        "yes_rate": 0.523
+      },
+      "17": {
+        "count": 132,
+        "yes_rate": 0.447
+      },
+      "16": {
+        "count": 132,
+        "yes_rate": 0.477
+      },
+      "15": {
+        "count": 132,
+        "yes_rate": 0.485
+      },
+      "14": {
+        "count": 132,
+        "yes_rate": 0.508
+      },
+      "13": {
+        "count": 132,
+        "yes_rate": 0.508
+      },
+      "12": {
+        "count": 132,
+        "yes_rate": 0.477
+      },
+      "11": {
+        "count": 132,
+        "yes_rate": 0.447
+      },
+      "10": {
+        "count": 132,
+        "yes_rate": 0.47
+      },
+      "9": {
+        "count": 124,
+        "yes_rate": 0.484
+      },
+      "5": {
+        "count": 128,
+        "yes_rate": 0.461
+      },
+      "4": {
+        "count": 128,
+        "yes_rate": 0.469
+      },
+      "3": {
+        "count": 128,
+        "yes_rate": 0.477
+      },
+      "2": {
+        "count": 128,
+        "yes_rate": 0.43
+      },
+      "8": {
+        "count": 116,
+        "yes_rate": 0.483
+      },
+      "7": {
+        "count": 112,
+        "yes_rate": 0.536
+      },
+      "6": {
+        "count": 120,
+        "yes_rate": 0.525
+      }
+    },
+    "price_buckets": {},
+    "bracket_by_entry": {
+      "25": {
+        "count": 0
+      },
+      "30": {
+        "count": 0
+      },
+      "35": {
+        "count": 0
+      },
+      "36": {
+        "count": 0
+      },
+      "40": {
+        "count": 0
+      },
+      "45": {
+        "count": 0
+      },
+      "50": {
+        "count": 0
+      },
+      "55": {
+        "count": 0
+      },
+      "60": {
+        "count": 0
+      },
+      "65": {
+        "count": 0
+      },
+      "70": {
+        "count": 0
+      }
+    },
+    "momentum": {},
+    "volatility": {
+      "avg_swing": 10.8,
+      "pct_swing_20": 0.159,
+      "price_coverage": "0/3094"
+    }
+  },
+  {
+    "series": "KXDOGE15M",
+    "count": 106,
+    "overall_yes_rate": 0.528,
+    "hour_analysis": {
+      "1": {
+        "count": 6,
+        "yes_rate": 0.333
+      },
+      "0": {
+        "count": 8,
+        "yes_rate": 0.75
+      },
+      "23": {
+        "count": 8,
+        "yes_rate": 0.625
+      },
+      "22": {
+        "count": 8,
+        "yes_rate": 0.375
+      },
+      "21": {
+        "count": 8,
+        "yes_rate": 0.75
+      },
+      "20": {
+        "count": 8,
+        "yes_rate": 0.875
+      },
+      "19": {
+        "count": 4,
+        "yes_rate": 0.5
+      },
+      "18": {
+        "count": 4,
+        "yes_rate": 0.5
+      },
+      "17": {
+        "count": 4,
+        "yes_rate": 0.5
+      },
+      "16": {
+        "count": 4,
+        "yes_rate": 0.25
+      },
+      "15": {
+        "count": 4,
+        "yes_rate": 0.75
+      },
+      "14": {
+        "count": 4,
+        "yes_rate": 0.5
+      },
+      "13": {
+        "count": 4,
+        "yes_rate": 0.5
+      },
+      "12": {
+        "count": 4,
+        "yes_rate": 0.0
+      },
+      "11": {
+        "count": 4,
+        "yes_rate": 0.5
+      },
+      "10": {
+        "count": 4,
+        "yes_rate": 0.0
+      },
+      "9": {
+        "count": 4,
+        "yes_rate": 1.0
+      },
+      "5": {
+        "count": 4,
+        "yes_rate": 0.5
+      },
+      "4": {
+        "count": 4,
+        "yes_rate": 0.25
+      },
+      "3": {
+        "count": 4,
+        "yes_rate": 0.75
+      },
+      "2": {
+        "count": 4,
+        "yes_rate": 0.25
+      }
+    },
+    "price_buckets": {},
+    "bracket_by_entry": {
+      "25": {
+        "count": 0
+      },
+      "30": {
+        "count": 0
+      },
+      "35": {
+        "count": 0
+      },
+      "36": {
+        "count": 0
+      },
+      "40": {
+        "count": 0
+      },
+      "45": {
+        "count": 0
+      },
+      "50": {
+        "count": 0
+      },
+      "55": {
+        "count": 0
+      },
+      "60": {
+        "count": 0
+      },
+      "65": {
+        "count": 0
+      },
+      "70": {
+        "count": 0
+      }
+    },
+    "momentum": {},
+    "volatility": {
+      "avg_swing": 62.6,
+      "pct_swing_20": 0.875,
+      "price_coverage": "0/106"
+    }
+  },
+  {
+    "series": "KXBNB15M",
+    "count": 107,
+    "overall_yes_rate": 0.533,
+    "hour_analysis": {
+      "1": {
+        "count": 6,
+        "yes_rate": 0.5
+      },
+      "0": {
+        "count": 9,
+        "yes_rate": 0.556
+      },
+      "23": {
+        "count": 8,
+        "yes_rate": 0.5
+      },
+      "22": {
+        "count": 8,
+        "yes_rate": 0.5
+      },
+      "21": {
+        "count": 8,
+        "yes_rate": 0.75
+      },
+      "20": {
+        "count": 8,
+        "yes_rate": 0.75
+      },
+      "19": {
+        "count": 4,
+        "yes_rate": 0.5
+      },
+      "18": {
+        "count": 4,
+        "yes_rate": 0.25
+      },
+      "17": {
+        "count": 4,
+        "yes_rate": 0.5
+      },
+      "16": {
+        "count": 4,
+        "yes_rate": 0.5
+      },
+      "15": {
+        "count": 4,
+        "yes_rate": 0.5
+      },
+      "14": {
+        "count": 4,
+        "yes_rate": 0.25
+      },
+      "13": {
+        "count": 4,
+        "yes_rate": 0.75
+      },
+      "12": {
+        "count": 4,
+        "yes_rate": 0.25
+      },
+      "11": {
+        "count": 4,
+        "yes_rate": 0.5
+      },
+      "10": {
+        "count": 4,
+        "yes_rate": 0.25
+      },
+      "9": {
+        "count": 4,
+        "yes_rate": 1.0
+      },
+      "5": {
+        "count": 4,
+        "yes_rate": 0.5
+      },
+      "4": {
+        "count": 4,
+        "yes_rate": 0.5
+      },
+      "3": {
+        "count": 4,
+        "yes_rate": 0.5
+      },
+      "2": {
+        "count": 4,
+        "yes_rate": 0.5
+      }
+    },
+    "price_buckets": {},
+    "bracket_by_entry": {
+      "25": {
+        "count": 0
+      },
+      "30": {
+        "count": 0
+      },
+      "35": {
+        "count": 0
+      },
+      "36": {
+        "count": 0
+      },
+      "40": {
+        "count": 0
+      },
+      "45": {
+        "count": 0
+      },
+      "50": {
+        "count": 0
+      },
+      "55": {
+        "count": 0
+      },
+      "60": {
+        "count": 0
+      },
+      "65": {
+        "count": 0
+      },
+      "70": {
+        "count": 0
+      }
+    },
+    "momentum": {},
+    "volatility": {
+      "avg_swing": 57.7,
+      "pct_swing_20": 0.758,
+      "price_coverage": "0/107"
+    }
+  },
+  {
+    "series": "KXHYPE15M",
+    "count": 106,
+    "overall_yes_rate": 0.491,
+    "hour_analysis": {
+      "1": {
+        "count": 6,
+        "yes_rate": 0.333
+      },
+      "0": {
+        "count": 8,
+        "yes_rate": 0.75
+      },
+      "23": {
+        "count": 8,
+        "yes_rate": 0.875
+      },
+      "22": {
+        "count": 8,
+        "yes_rate": 0.25
+      },
+      "21": {
+        "count": 8,
+        "yes_rate": 0.375
+      },
+      "20": {
+        "count": 8,
+        "yes_rate": 0.5
+      },
+      "19": {
+        "count": 4,
+        "yes_rate": 0.5
+      },
+      "18": {
+        "count": 4,
+        "yes_rate": 0.25
+      },
+      "17": {
+        "count": 4,
+        "yes_rate": 0.5
+      },
+      "16": {
+        "count": 4,
+        "yes_rate": 0.25
+      },
+      "15": {
+        "count": 4,
+        "yes_rate": 0.25
+      },
+      "14": {
+        "count": 4,
+        "yes_rate": 0.5
+      },
+      "13": {
+        "count": 4,
+        "yes_rate": 0.75
+      },
+      "12": {
+        "count": 4,
+        "yes_rate": 0.25
+      },
+      "11": {
+        "count": 4,
+        "yes_rate": 0.5
+      },
+      "10": {
+        "count": 4,
+        "yes_rate": 0.25
+      },
+      "9": {
+        "count": 4,
+        "yes_rate": 0.75
+      },
+      "5": {
+        "count": 4,
+        "yes_rate": 0.75
+      },
+      "4": {
+        "count": 4,
+        "yes_rate": 0.25
+      },
+      "3": {
+        "count": 4,
+        "yes_rate": 0.5
+      },
+      "2": {
+        "count": 4,
+        "yes_rate": 0.75
+      }
+    },
+    "price_buckets": {},
+    "bracket_by_entry": {
+      "25": {
+        "count": 0
+      },
+      "30": {
+        "count": 0
+      },
+      "35": {
+        "count": 0
+      },
+      "36": {
+        "count": 0
+      },
+      "40": {
+        "count": 0
+      },
+      "45": {
+        "count": 0
+      },
+      "50": {
+        "count": 0
+      },
+      "55": {
+        "count": 0
+      },
+      "60": {
+        "count": 0
+      },
+      "65": {
+        "count": 0
+      },
+      "70": {
+        "count": 0
+      }
+    },
+    "momentum": {},
+    "volatility": {
+      "avg_swing": 55.1,
+      "pct_swing_20": 0.719,
+      "price_coverage": "0/106"
+    }
+  }
+]

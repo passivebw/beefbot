@@ -1,0 +1,22 @@
+# Sensitive
+.env
+*.pem
+*private_key*
+
+# Python
+__pycache__/
+*.pyc
+venv/
+*.egg-info/
+
+# Data & logs
+data/
+logs/
+analysis/dumps/
+analysis/*.db
+analysis/*.json
+analysis/*.log
+
+# OS
+.DS_Store
+Thumbs.db

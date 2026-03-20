@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(venv/Scripts/python -c \":*)",
+      "Bash(venv/Scripts/python -c \"from app.main import main; print\\(''imports OK''\\)\")",
+      "Bash(tasklist)",
+      "Bash(taskkill /PID 7320 /F)",
+      "Bash(cmd /c \"taskkill /PID 7320 /F\")",
+      "Bash(cmd /c \"taskkill /PID 7320 /F 2>&1\")",
+      "Bash(cmd /c taskkill /PID 7320 /F)",
+      "Bash(powershell -Command \"Stop-Process -Id 7320 -Force -ErrorAction SilentlyContinue; Write-Host ''done''\")",
+      "Bash(powershell -Command \"Get-Process python | Where-Object {$_Id -ne 27084} | Stop-Process -Force -ErrorAction SilentlyContinue; Write-Host ''stopped''\")",
+      "Bash(powershell -Command \"Stop-Process -Id 25784 -Force; Write-Host ''stopped''\")",
+      "Bash(powershell -Command \"Stop-Process -Id 10888 -Force; Write-Host ''stopped''\")",
+      "Bash(powershell -Command \"Stop-Process -Id 13696 -Force; Write-Host ''stopped''\")",
+      "Bash(powershell -Command \"Get-Process python | Where-Object {$_Id -ne 28020} | Stop-Process -Force -ErrorAction SilentlyContinue; Write-Host ''stopped''\")",
+      "Bash(ssh-keyscan 143.198.172.60)",
+      "Bash(ssh -o StrictHostKeyChecking=no root@143.198.172.60 \"tail -10 /opt/kalshi-bot/logs/bot.log\")",
+      "Bash(powershell -Command \"Stop-Process -Id 20436 -Force; Write-Host ''stopped''\")",
+      "Bash(venv/Scripts/python -c \"from app.strategy.edge_engine import compute_edge; from app.features.probability_model import compute_probability; from app.data.hyperliquid_client import HyperliquidClient; print\\(''OK''\\)\")",
+      "WebSearch",
+      "WebFetch(domain:www.nber.org)",
+      "WebFetch(domain:www.cis.upenn.edu)",
+      "WebFetch(domain:www.trevorlasn.com)",
+      "WebFetch(domain:www.csc2.ncsu.edu)",
+      "WebFetch(domain:newyorkcityservers.com)",
+      "WebFetch(domain:arxiv.org)",
+      "WebFetch(domain:www.biz.uiowa.edu)",
+      "Bash(python -c \":*)",
+      "Bash(source venv/Scripts/activate)",
+      "Bash(scp c:/Users/brand/kalshi-btc-15min-bot/v2/bracket_scalper.py root@143.198.172.60:/opt/kalshi-bot/v2/bracket_scalper.py)",
+      "WebFetch(domain:kalshi.com)",
+      "WebFetch(domain:api.elections.kalshi.com)",
+      "Bash(del c:/Users/brand/kalshi-btc-15min-bot/v2/analysis/market_data.db)"
+    ]
+  }
+}

@@ -1,0 +1,151 @@
+========================================================================
+  KALSHI 15-MIN CRYPTO — EDGE ANALYSIS REPORT
+  Generated : 2026-03-20 01:45 UTC
+  Series    : KXBTC15M, KXETH15M, KXSOL15M, KXXRP15M, KXDOGE15M, KXBNB15M, KXHYPE15M
+  API depth : up to 3000 contracts per series (~31 days)
+  Dump depth: 180 days of daily files for price ranges
+========================================================================
+
+
+────────────────────────────────────────────────────────────────────────
+  KXBTC15M
+────────────────────────────────────────────────────────────────────────
+  Contracts analyzed : 3094
+  Overall YES rate   : 50.8%  (50.0% = fair)
+  Price coverage     : 0/3094 contracts have high/low data
+  Avg price swing    : 10.9c  |  Swing ≥20c: 15.9%
+
+  TIME-OF-DAY  (UTC 4-hour blocks):
+  00:00-04:00 UTC  48.5% YES  (n= 518)  █████████
+  04:00-08:00 UTC  51.0% YES  (n= 488)  ██████████
+  08:00-12:00 UTC  52.0% YES  (n= 504)  ██████████
+  12:00-16:00 UTC  52.1% YES  (n= 528)  ██████████
+  16:00-20:00 UTC  51.5% YES  (n= 528)  ██████████
+  20:00-24:00 UTC  49.8% YES  (n= 528)  █████████
+
+
+────────────────────────────────────────────────────────────────────────
+  KXETH15M
+────────────────────────────────────────────────────────────────────────
+  Contracts analyzed : 3094
+  Overall YES rate   : 50.7%  (50.0% = fair)
+  Price coverage     : 0/3094 contracts have high/low data
+  Avg price swing    : 10.8c  |  Swing ≥20c: 15.9%
+
+  TIME-OF-DAY  (UTC 4-hour blocks):
+  00:00-04:00 UTC  49.8% YES  (n= 518)  █████████
+  04:00-08:00 UTC  51.0% YES  (n= 488)  ██████████
+  08:00-12:00 UTC  49.8% YES  (n= 504)  █████████
+  12:00-16:00 UTC  51.9% YES  (n= 528)  ██████████
+  16:00-20:00 UTC  49.1% YES  (n= 528)  █████████
+  20:00-24:00 UTC  52.7% YES  (n= 528)  ██████████
+
+
+────────────────────────────────────────────────────────────────────────
+  KXSOL15M
+────────────────────────────────────────────────────────────────────────
+  Contracts analyzed : 3094
+  Overall YES rate   : 50.9%  (50.0% = fair)
+  Price coverage     : 0/3094 contracts have high/low data
+  Avg price swing    : 10.8c  |  Swing ≥20c: 15.9%
+
+  TIME-OF-DAY  (UTC 4-hour blocks):
+  00:00-04:00 UTC  49.8% YES  (n= 518)  █████████
+  04:00-08:00 UTC  50.4% YES  (n= 488)  ██████████
+  08:00-12:00 UTC  49.0% YES  (n= 504)  █████████
+  12:00-16:00 UTC  51.1% YES  (n= 528)  ██████████
+  16:00-20:00 UTC  52.1% YES  (n= 528)  ██████████
+  20:00-24:00 UTC  52.7% YES  (n= 528)  ██████████
+
+
+────────────────────────────────────────────────────────────────────────
+  KXXRP15M
+────────────────────────────────────────────────────────────────────────
+  Contracts analyzed : 3094
+  Overall YES rate   : 48.6%  (50.0% = fair)
+  Price coverage     : 0/3094 contracts have high/low data
+  Avg price swing    : 10.8c  |  Swing ≥20c: 15.9%
+
+  TIME-OF-DAY  (UTC 4-hour blocks):
+  00:00-04:00 UTC  48.5% YES  (n= 518)  █████████
+  04:00-08:00 UTC  49.6% YES  (n= 488)  █████████
+  08:00-12:00 UTC  47.0% YES  (n= 504)  █████████
+  12:00-16:00 UTC  49.4% YES  (n= 528)  █████████
+  16:00-20:00 UTC  47.3% YES  (n= 528)  █████████
+  20:00-24:00 UTC  49.6% YES  (n= 528)  █████████
+
+
+────────────────────────────────────────────────────────────────────────
+  KXDOGE15M
+────────────────────────────────────────────────────────────────────────
+  Contracts analyzed : 106
+  Overall YES rate   : 52.8%  (50.0% = fair)
+  Price coverage     : 0/106 contracts have high/low data
+  Avg price swing    : 62.6c  |  Swing ≥20c: 87.5%
+
+  TIME-OF-DAY  (UTC 4-hour blocks):
+  00:00-04:00 UTC  54.5% YES  (n=  22)  ██████████
+  04:00-08:00 UTC  37.5% YES  (n=   8)  ███████
+  08:00-12:00 UTC  50.0% YES  (n=  12)  ██████████
+  12:00-16:00 UTC  43.8% YES  (n=  16)  ████████
+  16:00-20:00 UTC  43.8% YES  (n=  16)  ████████
+  20:00-24:00 UTC  65.6% YES  (n=  32)  █████████████  ◄ YES EDGE
+
+
+────────────────────────────────────────────────────────────────────────
+  KXBNB15M
+────────────────────────────────────────────────────────────────────────
+  Contracts analyzed : 107
+  Overall YES rate   : 53.3%  (50.0% = fair)
+  Price coverage     : 0/107 contracts have high/low data
+  Avg price swing    : 57.7c  |  Swing ≥20c: 75.8%
+
+  TIME-OF-DAY  (UTC 4-hour blocks):
+  00:00-04:00 UTC  52.2% YES  (n=  23)  ██████████
+  04:00-08:00 UTC  50.0% YES  (n=   8)  ██████████
+  08:00-12:00 UTC  58.3% YES  (n=  12)  ███████████
+  12:00-16:00 UTC  43.8% YES  (n=  16)  ████████
+  16:00-20:00 UTC  43.8% YES  (n=  16)  ████████
+  20:00-24:00 UTC  62.5% YES  (n=  32)  ████████████  ◄ YES EDGE
+
+
+────────────────────────────────────────────────────────────────────────
+  KXHYPE15M
+────────────────────────────────────────────────────────────────────────
+  Contracts analyzed : 106
+  Overall YES rate   : 49.1%  (50.0% = fair)
+  Price coverage     : 0/106 contracts have high/low data
+  Avg price swing    : 55.1c  |  Swing ≥20c: 71.9%
+
+  TIME-OF-DAY  (UTC 4-hour blocks):
+  00:00-04:00 UTC  59.1% YES  (n=  22)  ███████████  ◄ YES EDGE
+  04:00-08:00 UTC  50.0% YES  (n=   8)  ██████████
+  08:00-12:00 UTC  50.0% YES  (n=  12)  ██████████
+  12:00-16:00 UTC  43.8% YES  (n=  16)  ████████
+  16:00-20:00 UTC  37.5% YES  (n=  16)  ███████
+  20:00-24:00 UTC  50.0% YES  (n=  32)  ██████████
+
+
+────────────────────────────────────────────────────────────────────────
+  CROSS-ASSET SUMMARY
+────────────────────────────────────────────────────────────────────────
+        Series      N    YES%   AvgSwing   Swing≥20
+     KXDOGE15M    106  52.8%      62.6c     87.5%
+      KXBNB15M    107  53.3%      57.7c     75.8%
+     KXHYPE15M    106  49.1%      55.1c     71.9%
+      KXBTC15M   3094  50.8%      10.9c     15.9%
+      KXETH15M   3094  50.7%      10.8c     15.9%
+      KXSOL15M   3094  50.9%      10.8c     15.9%
+      KXXRP15M   3094  48.6%      10.8c     15.9%
+
+  TOP EV PLAYS  (n≥15, |EV|≥3c):
+  None found with sufficient sample yet — check per-series tables above.
+
+  TIME-OF-DAY EDGE SUMMARY  (n≥20, deviation >6% from 50%):
+     KXDOGE15M  20:00-24:00 UTC → BUY YES  65.6%  (n=32)
+      KXBNB15M  20:00-24:00 UTC → BUY YES  62.5%  (n=32)
+     KXHYPE15M  00:00-04:00 UTC → BUY YES  59.1%  (n=22)
+
+========================================================================
+  END OF REPORT
+========================================================================

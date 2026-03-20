@@ -1,0 +1,159 @@
+21:20:37  INFO      ============================================================
+21:20:37  INFO      Kalshi Dump Analyzer — 15-min Crypto Markets
+21:20:37  INFO      ============================================================
+21:20:37  INFO      Downloading 5 days of Kalshi market dumps...
+21:20:37  INFO        2026-03-20: no dump available (404)
+21:20:38  INFO        2026-03-19: no dump available (404)
+21:21:12  INFO        2026-03-18: downloaded 2187255 markets
+21:21:14  INFO        2026-03-18: 2187255 total, 0 crypto 15m
+21:21:45  INFO        2026-03-17: downloaded 2178783 markets
+21:21:48  INFO        2026-03-17: 2178783 total, 0 crypto 15m
+21:27:08  INFO      ============================================================
+21:27:08  INFO      Market Analyzer — Kalshi 15-min Crypto  [4 series]
+21:27:08  INFO      ============================================================
+21:27:09  INFO      RSA private key loaded OK
+21:27:09  INFO      Database: analysis\market_data.db
+21:27:09  INFO      ────────────────────────────────────────
+21:27:09  INFO      Phase 1: Collecting resolved market metadata...
+21:27:09  INFO      Fetching resolved markets for KXBTC15M...
+21:27:12  INFO        KXBTC15M: 500 contracts pulled, 500 new
+21:27:12  INFO      Fetching resolved markets for KXETH15M...
+21:27:15  INFO        KXETH15M: 500 contracts pulled, 500 new
+21:27:16  INFO      Fetching resolved markets for KXSOL15M...
+21:27:19  INFO        KXSOL15M: 500 contracts pulled, 500 new
+21:27:19  INFO      Fetching resolved markets for KXXRP15M...
+21:27:22  INFO        KXXRP15M: 500 contracts pulled, 500 new
+21:27:22  INFO      Fetching resolved markets for KXDOGE15M...
+21:27:24  INFO        KXDOGE15M: 212 contracts pulled, 212 new
+21:27:24  INFO      Fetching resolved markets for KXBNB15M...
+21:27:25  INFO        KXBNB15M: 213 contracts pulled, 213 new
+21:27:26  INFO      Fetching resolved markets for KXHYPE15M...
+21:27:27  INFO        KXHYPE15M: 212 contracts pulled, 212 new
+21:27:27  INFO      ────────────────────────────────────────
+21:27:27  INFO      Phase 2: Fetching trade price paths (this takes a while)...
+21:27:27  INFO      Fetching trade price paths for 2637 contracts...
+21:27:27  INFO        Price path progress: 1/2637
+21:28:12  INFO        Price path progress: 100/2637
+21:28:58  INFO        Price path progress: 200/2637
+21:29:44  INFO        Price path progress: 300/2637
+21:30:30  INFO        Price path progress: 400/2637
+21:31:15  INFO        Price path progress: 500/2637
+21:31:35  INFO      ============================================================
+21:31:35  INFO      Market Analyzer — Kalshi 15-min Crypto  [4 series]
+21:31:35  INFO      ============================================================
+21:31:35  INFO      RSA private key loaded OK
+21:31:36  INFO      Database: analysis\market_data.db
+21:31:36  INFO      ────────────────────────────────────────
+21:31:36  INFO      Phase 1: Collecting resolved market metadata...
+21:31:36  INFO      Fetching resolved markets for KXBTC15M...
+21:31:38  INFO        KXBTC15M: 500 contracts pulled, 0 new
+21:31:39  INFO      Fetching resolved markets for KXETH15M...
+21:31:41  INFO        KXETH15M: 500 contracts pulled, 0 new
+21:31:41  INFO      Fetching resolved markets for KXSOL15M...
+21:31:44  INFO        KXSOL15M: 500 contracts pulled, 0 new
+21:31:44  INFO      Fetching resolved markets for KXXRP15M...
+21:31:46  INFO        KXXRP15M: 500 contracts pulled, 0 new
+21:31:47  INFO      Fetching resolved markets for KXDOGE15M...
+21:31:48  INFO        KXDOGE15M: 212 contracts pulled, 0 new
+21:31:48  INFO      Fetching resolved markets for KXBNB15M...
+21:31:49  INFO        KXBNB15M: 213 contracts pulled, 0 new
+21:31:50  INFO      Fetching resolved markets for KXHYPE15M...
+21:31:51  INFO        KXHYPE15M: 212 contracts pulled, 0 new
+21:31:51  INFO      ────────────────────────────────────────
+21:31:51  INFO      Phase 2: Running analysis...
+21:31:51  INFO        KXBTC15M: 393 contracts analyzed
+21:31:51  INFO        KXETH15M: 393 contracts analyzed
+21:31:51  INFO        KXSOL15M: 393 contracts analyzed
+21:31:51  INFO        KXXRP15M: 393 contracts analyzed
+21:31:51  INFO        KXDOGE15M: 105 contracts analyzed
+21:31:51  INFO        KXBNB15M: 106 contracts analyzed
+21:31:51  INFO        KXHYPE15M: 105 contracts analyzed
+21:31:51  INFO      Report saved → analysis\edge_report.txt
+21:31:51  INFO      Raw JSON   → analysis\results.json
+21:31:51  INFO      Done.
+21:41:40  INFO      ============================================================
+21:41:40  INFO      Kalshi Historical Analysis — Starting
+21:41:40  INFO      Series: KXBTC15M, KXETH15M, KXSOL15M, KXXRP15M, KXDOGE15M, KXBNB15M, KXHYPE15M
+21:41:40  INFO      ============================================================
+21:41:40  INFO      RSA key loaded OK
+21:41:40  INFO      Database: analysis\market_data.db
+21:41:40  INFO      ============================================================
+21:41:40  INFO      Phase 1: Pulling resolved contracts from Kalshi API
+21:41:40  INFO      ============================================================
+21:41:48  INFO      ============================================================
+21:41:48  INFO      Kalshi Historical Analysis — Starting
+21:41:48  INFO      Series: KXBTC15M, KXETH15M, KXSOL15M, KXXRP15M, KXDOGE15M, KXBNB15M, KXHYPE15M
+21:41:48  INFO      ============================================================
+21:41:48  INFO      RSA key loaded OK
+21:41:48  INFO      Database: analysis\market_data.db
+21:41:48  INFO      ============================================================
+21:41:48  INFO      Phase 1: Pulling resolved contracts from Kalshi API
+21:41:48  INFO      ============================================================
+21:42:10  INFO      ============================================================
+21:42:10  INFO      Kalshi Historical Analysis — Starting
+21:42:10  INFO      Series: KXBTC15M, KXETH15M, KXSOL15M, KXXRP15M, KXDOGE15M, KXBNB15M, KXHYPE15M
+21:42:10  INFO      ============================================================
+21:42:10  INFO      RSA key loaded OK
+21:42:10  INFO      Database: analysis\market_data.db
+21:42:10  INFO      ============================================================
+21:42:10  INFO      Phase 1: Pulling resolved contracts from Kalshi API
+21:42:10  INFO      ============================================================
+21:42:10  INFO        KXBTC15M: 0 already in DB, pulling up to 3000...
+21:42:24  INFO          KXBTC15M: 3094 new contracts added, 3094 total settled
+21:42:25  INFO        KXETH15M: 0 already in DB, pulling up to 3000...
+21:42:39  INFO          KXETH15M: 3094 new contracts added, 3094 total settled
+21:42:39  INFO        KXSOL15M: 0 already in DB, pulling up to 3000...
+21:42:53  INFO          KXSOL15M: 3094 new contracts added, 3094 total settled
+21:42:54  INFO        KXXRP15M: 0 already in DB, pulling up to 3000...
+21:43:08  INFO          KXXRP15M: 3094 new contracts added, 3094 total settled
+21:43:08  INFO        KXDOGE15M: 0 already in DB, pulling up to 3000...
+21:43:09  INFO          KXDOGE15M: 106 new contracts added, 106 total settled
+21:43:10  INFO        KXBNB15M: 0 already in DB, pulling up to 3000...
+21:43:10  INFO          KXBNB15M: 107 new contracts added, 107 total settled
+21:43:11  INFO        KXHYPE15M: 0 already in DB, pulling up to 3000...
+21:43:12  INFO          KXHYPE15M: 106 new contracts added, 106 total settled
+21:43:12  INFO      Phase 1 complete. Total settled contracts: 12695
+21:43:12  INFO      ============================================================
+21:43:12  INFO      Phase 2: Downloading Kalshi daily dump files for price ranges
+21:43:12  INFO               Scanning 180 days back
+21:43:12  INFO      ============================================================
+21:43:12  INFO        Need price data for 12695 contracts
+21:43:12  INFO        2026-03-20: downloading dump (49 contracts needed)...
+21:43:12  INFO        2026-03-20: not available (404)
+21:43:13  INFO        2026-03-19: downloading dump (588 contracts needed)...
+21:43:13  INFO        2026-03-19: not available (404)
+21:43:13  INFO        2026-03-18: downloading dump (429 contracts needed)...
+21:43:50  INFO        2026-03-18: parsing 632MB...
+21:43:55  INFO        2026-03-18: found 3124 crypto 15m records
+21:43:55  INFO        2026-03-18: matched 3124 contracts with price ranges
+21:43:55  INFO        2026-03-11: downloading dump (64 contracts needed)...
+21:44:28  INFO        2026-03-11: parsing 599MB...
+21:44:33  INFO        2026-03-11: found 3032 crypto 15m records
+21:44:33  INFO        2026-03-11: matched 3029 contracts with price ranges
+21:44:33  INFO        2026-03-04: downloading dump (64 contracts needed)...
+21:44:59  INFO        2026-03-04: parsing 532MB...
+21:45:04  INFO        2026-03-04: found 3028 crypto 15m records
+21:45:04  INFO        2026-03-04: matched 3028 contracts with price ranges
+21:45:04  INFO        2026-02-25: downloading dump (80 contracts needed)...
+21:45:22  INFO        2026-02-25: parsing 432MB...
+21:45:26  INFO        2026-02-25: found 3076 crypto 15m records
+21:45:26  INFO        2026-02-25: matched 3076 contracts with price ranges
+21:45:26  INFO        2026-02-18: downloading dump (80 contracts needed)...
+21:45:45  INFO        2026-02-18: parsing 435MB...
+21:45:48  INFO        2026-02-18: found 3075 crypto 15m records
+21:45:48  INFO        2026-02-18: matched 1488 contracts with price ranges
+21:45:49  INFO      Phase 2 complete. Total price ranges added: 13745
+21:45:49  INFO      Price range coverage: 12177/12695 contracts (96%)
+21:45:49  INFO      ============================================================
+21:45:49  INFO      Phase 3: Running analysis...
+21:45:49  INFO      ============================================================
+21:45:49  INFO        KXBTC15M: 3094 contracts, price coverage=0/3094
+21:45:49  INFO        KXETH15M: 3094 contracts, price coverage=0/3094
+21:45:49  INFO        KXSOL15M: 3094 contracts, price coverage=0/3094
+21:45:49  INFO        KXXRP15M: 3094 contracts, price coverage=0/3094
+21:45:49  INFO        KXDOGE15M: 106 contracts, price coverage=0/106
+21:45:49  INFO        KXBNB15M: 107 contracts, price coverage=0/107
+21:45:49  INFO        KXHYPE15M: 106 contracts, price coverage=0/106
+21:45:49  INFO      
+Report saved → analysis\edge_report.txt
+21:45:49  INFO      Done.
