@@ -1,17 +1,15 @@
 """
 multi_scalper.py - Kalshi 7-Market Paper Scalper
 
-Runs bracket + directional strategies across all 7 crypto 15-min markets
+Runs a momentum-follow strategy across all 7 crypto 15-min markets
 simultaneously using one thread per series.
 
-Strategy per market:
-  Bracket (all markets, all hours):
-    Place YES@ENTRY + NO@ENTRY at contract open.
-    First fill cancels the other. TP=56c, SL=20c, time-stop last 3min.
-
-  Directional overlay (bias hours only):
-    DOGE/BNB  20:00-24:00 UTC  → place YES only (65%/62% historical win rate)
-    HYPE      00:00-04:00 UTC  → place YES only (59% historical win rate)
+Strategy:
+  1. Wait 3 min after contract open for direction to establish.
+  2. If YES bid >= 60c (bullish) → buy YES at ask.
+     If NO bid  >= 60c (bearish) → buy NO  at ask.
+     If between 40-60c (no signal) → skip.
+  3. TP=82c, SL=50c mid, time-stop last 2 min.
 
 All trades are PAPER ONLY — no real orders placed.
 
@@ -57,25 +55,14 @@ SERIES = [
     "KXHYPE15M",
 ]
 
-# Directional bias windows: (utc_hour_start, utc_hour_end, side)
-# During these hours, place ONLY the biased side instead of full bracket
-BIAS: dict[str, tuple[int, int, str] | None] = {
-    "KXBTC15M":  None,
-    "KXETH15M":  None,
-    "KXSOL15M":  None,
-    "KXXRP15M":  None,
-    "KXDOGE15M": (20, 24, "yes"),   # 4-8pm ET → YES 65.6%
-    "KXBNB15M":  (20, 24, "yes"),   # 4-8pm ET → YES 62.5%
-    "KXHYPE15M": (0,  4,  "yes"),   # 8pm-midnight ET → YES 59.1%
-}
-
-# Strategy parameters
-ENTRY_CENTS       = 36
-TAKE_PROFIT_CENTS = 56
-STOP_LOSS_CENTS   = 20
-TIME_STOP_SECONDS = 180   # exit at mid if <=3 min remaining
-FILL_WINDOW_SECONDS = 300  # cancel if no fill within 5 min
-CONTRACTS         = 1
+# Strategy parameters - Momentum Follow
+MOMENTUM_THRESHOLD_CENTS = 60   # bid must reach this to trigger entry
+ENTRY_WAIT_SECONDS       = 180  # wait 3 min for direction to establish
+SCAN_WINDOW_SECONDS      = 480  # scan from min 3 to min 11 (8 min window)
+TAKE_PROFIT_CENTS        = 82   # exit when bid reaches this
+STOP_LOSS_CENTS          = 50   # exit if mid drops back to 50c
+TIME_STOP_SECONDS        = 120  # exit at whatever price with 2 min left
+CONTRACTS                = 1
 
 MARKET_POLL_INTERVAL = 2   # seconds between contract detection polls
 ORDER_POLL_INTERVAL  = 5   # seconds between fill/exit checks
@@ -329,37 +316,6 @@ def sleep_until_next_contract(log: logging.LoggerAdapter, buffer_s: float = 1.5)
         time.sleep(wait)
 
 
-def get_bias_side(series: str) -> Optional[str]:
-    """Return 'yes' or 'no' if we're in a bias window, else None (= full bracket)."""
-    bias = BIAS.get(series)
-    if not bias:
-        return None
-    start_h, end_h, side = bias
-    utc_hour = datetime.now(tz=timezone.utc).hour
-    if start_h <= utc_hour < end_h:
-        return side
-    return None
-
-
-def check_fill(ob: OrderBook, side: str) -> bool:
-    if side == "yes":
-        return ob.yes_ask <= ENTRY_CENTS
-    else:
-        return ob.no_ask <= ENTRY_CENTS
-
-
-def check_take_profit(ob: OrderBook, side: str) -> bool:
-    if side == "yes":
-        return ob.yes_bid >= TAKE_PROFIT_CENTS
-    else:
-        return ob.no_bid >= TAKE_PROFIT_CENTS
-
-
-def check_stop_loss(ob: OrderBook, side: str) -> bool:
-    mid = ob.mid_yes if side == "yes" else (100 - ob.mid_yes)
-    return mid <= STOP_LOSS_CENTS
-
-
 def current_mid(ob: OrderBook, side: str) -> int:
     return ob.mid_yes if side == "yes" else (100 - ob.mid_yes)
 
@@ -375,35 +331,29 @@ def run_cycle(
     ticker: str,
     expiry_ts: float,
 ) -> None:
-    """Run one full bracket/directional cycle for one contract."""
+    """Momentum-follow cycle: wait 3 min, enter on strong directional signal."""
 
     tte = expiry_ts - time.time()
-    min_required = FILL_WINDOW_SECONDS + TIME_STOP_SECONDS + 30
+    min_required = ENTRY_WAIT_SECONDS + 60 + TIME_STOP_SECONDS + 30
     if tte < min_required:
         log.info(f"[{ticker}] Not enough time (tte={tte:.0f}s < {min_required}s) — skipping")
         return
 
-    bias_side = get_bias_side(series)
-    if bias_side:
-        mode = "directional"
-        sides_to_try = [bias_side]
-        log.info(f"[{ticker}] DIRECTIONAL mode — placing {bias_side.upper()} @ {ENTRY_CENTS}c  (bias window active)")
-    else:
-        mode = "bracket"
-        sides_to_try = ["yes", "no"]
-        log.info(f"[{ticker}] BRACKET mode — placing YES @ {ENTRY_CENTS}c + NO @ {ENTRY_CENTS}c")
+    # ---- Phase 1: wait for direction to establish ----
+    log.info(f"[{ticker}] MOMENTUM mode — waiting {ENTRY_WAIT_SECONDS}s for direction...")
+    time.sleep(ENTRY_WAIT_SECONDS)
 
-    placed_at = time.time()
-    fill_deadline = placed_at + FILL_WINDOW_SECONDS
-    filled_side: Optional[str] = None
+    # ---- Phase 2: scan for momentum signal ----
+    scan_deadline = time.time() + SCAN_WINDOW_SECONDS
+    filled_side:  Optional[str] = None
+    entry_cents:  Optional[int] = None
 
-    # ---- Phase 1: wait for fill ----
-    while time.time() < fill_deadline:
+    while time.time() < scan_deadline:
         time.sleep(ORDER_POLL_INTERVAL)
 
         tte = expiry_ts - time.time()
-        if tte <= 0:
-            log.info(f"[{ticker}] Expired during fill window — cancelling")
+        if tte <= TIME_STOP_SECONDS + 30:
+            log.info(f"[{ticker}] Too late to enter (tte={tte:.0f}s) — no trade")
             return
 
         try:
@@ -412,32 +362,28 @@ def run_cycle(
             log.warning(f"[{ticker}] Orderbook error: {e}")
             continue
 
-        log.info(
-            f"[{ticker}] ob: yes_bid={ob.yes_bid} yes_ask={ob.yes_ask} "
-            f"no_bid={ob.no_bid} no_ask={ob.no_ask}  tte={tte:.0f}s"
+        log.debug(
+            f"[{ticker}] scan: yes_bid={ob.yes_bid} no_bid={ob.no_bid}  tte={tte:.0f}s"
         )
 
-        for side in sides_to_try:
-            if check_fill(ob, side):
-                filled_side = side
-                log.info(
-                    f"[{ticker}] FILL: {side.upper()} @ {ENTRY_CENTS}c  "
-                    f"({'yes_ask' if side=='yes' else 'no_ask'}="
-                    f"{ob.yes_ask if side=='yes' else ob.no_ask})"
-                )
-                break
-
-        if filled_side:
+        if ob.yes_bid >= MOMENTUM_THRESHOLD_CENTS:
+            filled_side = "yes"
+            entry_cents = ob.yes_ask
+            log.info(f"[{ticker}] MOMENTUM ENTRY: YES @ {entry_cents}c  (yes_bid={ob.yes_bid})")
+            break
+        elif ob.no_bid >= MOMENTUM_THRESHOLD_CENTS:
+            filled_side = "no"
+            entry_cents = ob.no_ask
+            log.info(f"[{ticker}] MOMENTUM ENTRY: NO @ {entry_cents}c  (no_bid={ob.no_bid})")
             break
     else:
-        elapsed = time.time() - placed_at
-        log.info(f"[{ticker}] Fill window expired ({elapsed:.0f}s) — no fill")
+        log.info(f"[{ticker}] No momentum signal — skipping")
         return
 
-    # ---- Phase 2: manage position ----
+    # ---- Phase 3: manage position ----
     log.info(
-        f"[{ticker}] Position open: LONG {filled_side.upper()} @ {ENTRY_CENTS}c  "
-        f"TP={TAKE_PROFIT_CENTS}c  SL={STOP_LOSS_CENTS}c"
+        f"[{ticker}] Position open: LONG {filled_side.upper()} @ {entry_cents}c  "
+        f"TP={TAKE_PROFIT_CENTS}c  SL={STOP_LOSS_CENTS}c(mid)"
     )
 
     exit_reason: Optional[str] = None
@@ -455,9 +401,9 @@ def run_cycle(
             continue
 
         mid = current_mid(ob, filled_side)
+        bid = ob.yes_bid if filled_side == "yes" else ob.no_bid
         log.debug(
-            f"[{ticker}] pos: side={filled_side} mid={mid}c  "
-            f"yes_bid={ob.yes_bid} yes_ask={ob.yes_ask}  tte={tte:.0f}s"
+            f"[{ticker}] pos: side={filled_side} mid={mid}c bid={bid}c  tte={tte:.0f}s"
         )
 
         if tte <= TIME_STOP_SECONDS:
@@ -466,13 +412,13 @@ def run_cycle(
             log.info(f"[{ticker}] TIME STOP  tte={tte:.0f}s  exit@{exit_cents}c")
             break
 
-        if check_take_profit(ob, filled_side):
+        if bid >= TAKE_PROFIT_CENTS:
             exit_reason = "take_profit"
             exit_cents  = TAKE_PROFIT_CENTS
             log.info(f"[{ticker}] TAKE PROFIT  exit@{exit_cents}c")
             break
 
-        if check_stop_loss(ob, filled_side):
+        if mid <= STOP_LOSS_CENTS:
             exit_reason = "stop_loss"
             exit_cents  = mid
             log.info(f"[{ticker}] STOP LOSS  mid={mid}c  exit@{exit_cents}c")
@@ -485,32 +431,20 @@ def run_cycle(
             break
 
     # ---- Record ----
-    assert exit_reason and exit_cents is not None
-    pnl_cents = exit_cents - ENTRY_CENTS
+    assert exit_reason and exit_cents is not None and entry_cents is not None
+    pnl_cents = exit_cents - entry_cents
     pnl_usd   = pnl_cents / 100.0 * CONTRACTS
     sign = "+" if pnl_cents >= 0 else ""
 
     log_trade(
-        conn, ticker, series, mode, filled_side,
-        ENTRY_CENTS, exit_cents, exit_reason, pnl_cents * CONTRACTS,
+        conn, ticker, series, "momentum", filled_side,
+        entry_cents, exit_cents, exit_reason, pnl_cents * CONTRACTS,
     )
 
     log.info(
-        f"[{ticker}] CLOSED  side={filled_side}  entry={ENTRY_CENTS}c  "
+        f"[{ticker}] CLOSED  side={filled_side}  entry={entry_cents}c  "
         f"exit={exit_cents}c  reason={exit_reason}  "
         f"PnL={sign}{pnl_cents}c / {sign}${pnl_usd:.4f}"
-    )
-    print(
-        f"\n{'='*60}\n"
-        f"  [{series}] TRADE CLOSED\n"
-        f"  Ticker  : {ticker}\n"
-        f"  Mode    : {mode}\n"
-        f"  Side    : {filled_side.upper()}\n"
-        f"  Entry   : {ENTRY_CENTS}c\n"
-        f"  Exit    : {exit_cents}c  ({exit_reason})\n"
-        f"  PnL     : {sign}{pnl_cents}c  ({sign}${pnl_usd:.4f})\n"
-        f"{'='*60}\n",
-        flush=True,
     )
 
 # ---------------------------------------------------------------------------
@@ -620,9 +554,10 @@ def main() -> None:
     log = get_log("MAIN")
     log.info("=" * 60)
     log.info("Multi-Market Scalper  [PAPER MODE]")
-    log.info(f"Markets : {', '.join(SERIES)}")
-    log.info(f"Strategy: bracket @ {ENTRY_CENTS}c  TP={TAKE_PROFIT_CENTS}c  SL={STOP_LOSS_CENTS}c")
-    log.info("Bias    : DOGE/BNB 20-24 UTC YES | HYPE 00-04 UTC YES")
+    log.info(f"Markets  : {', '.join(SERIES)}")
+    log.info(f"Strategy : MOMENTUM FOLLOW")
+    log.info(f"Signal   : bid >= {MOMENTUM_THRESHOLD_CENTS}c after {ENTRY_WAIT_SECONDS}s")
+    log.info(f"Exit     : TP={TAKE_PROFIT_CENTS}c  SL={STOP_LOSS_CENTS}c(mid)  TimeStop={TIME_STOP_SECONDS}s")
     log.info("=" * 60)
 
     api_key  = os.environ.get("KALSHI_API_KEY", "b16ab35a-2d26-4bd3-93c6-a1e8fd6c7a95")
