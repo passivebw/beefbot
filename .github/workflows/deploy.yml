@@ -17,7 +17,5 @@ jobs:
           script: |
             cd /opt/kalshi-bot
             git pull origin master
-            pkill -9 -f multi_scalper || true
-            nohup venv/bin/python3 v2/multi_scalper.py >> logs/multi_scalper.log 2>&1 & disown
-            sleep 3
+            systemctl restart kalshi-bot
             echo "Deploy complete: $(date)"
