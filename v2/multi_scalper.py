@@ -48,26 +48,28 @@ from flask import Flask, jsonify, request
 
 SERIES = [
     "KXBTC15M",
-    "KXETH15M",
+    # "KXETH15M",   # dropped: 33.3% win rate, no edge
     "KXSOL15M",
     "KXXRP15M",
     "KXDOGE15M",
-    "KXBNB15M",
+    # "KXBNB15M",   # dropped: 29.7% win rate, no edge
     "KXHYPE15M",
 ]
 
 # Strategy parameters - Momentum Follow
-MOMENTUM_THRESHOLD_CENTS = 60   # bid must reach this to trigger entry
+MOMENTUM_THRESHOLD_CENTS = 65   # raised from 60: require stronger conviction
 MOMENTUM_MAX_ENTRY_CENTS = 72   # skip if ask already above this (bad R/R)
 ENTRY_WAIT_SECONDS       = 180  # wait 3 min for direction to establish
 SCAN_WINDOW_SECONDS      = 480  # scan from min 3 to min 11 (8 min window)
 TAKE_PROFIT_CENTS        = 82   # exit when bid reaches this
 STOP_LOSS_CENTS          = 50   # exit if mid drops back to 50c
+SL_ALERT_CENTS           = 55   # switch to fast polling when mid drops here
 TIME_STOP_SECONDS        = 120  # exit at whatever price with 2 min left
 CONTRACTS                = 1
 
 MARKET_POLL_INTERVAL = 2   # seconds between contract detection polls
 ORDER_POLL_INTERVAL  = 5   # seconds between fill/exit checks
+SL_POLL_INTERVAL     = 1   # fast polling when near stop loss
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -400,18 +402,17 @@ def run_cycle(
     exit_cents:  Optional[int] = None
 
     while True:
-        time.sleep(ORDER_POLL_INTERVAL)
-
-        tte = expiry_ts - time.time()
-
         try:
             ob = client.get_orderbook(ticker, expiry_ts)
         except Exception as e:
             log.warning(f"[{ticker}] Orderbook error: {e}")
+            time.sleep(ORDER_POLL_INTERVAL)
             continue
 
+        tte = expiry_ts - time.time()
         mid = current_mid(ob, filled_side)
         bid = ob.yes_bid if filled_side == "yes" else ob.no_bid
+
         log.debug(
             f"[{ticker}] pos: side={filled_side} mid={mid}c bid={bid}c  tte={tte:.0f}s"
         )
@@ -430,9 +431,12 @@ def run_cycle(
 
         if mid <= STOP_LOSS_CENTS:
             exit_reason = "stop_loss"
-            exit_cents  = mid
+            exit_cents  = STOP_LOSS_CENTS  # lock to SL price, not slipped price
             log.info(f"[{ticker}] STOP LOSS  mid={mid}c  exit@{exit_cents}c")
             break
+
+        # Fast polling when near SL to catch it quickly
+        time.sleep(SL_POLL_INTERVAL if mid <= SL_ALERT_CENTS else ORDER_POLL_INTERVAL)
 
         if tte <= 0:
             exit_reason = "expired"
