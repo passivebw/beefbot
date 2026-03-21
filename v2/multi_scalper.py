@@ -57,6 +57,7 @@ SERIES = [
 
 # Strategy parameters - Momentum Follow
 MOMENTUM_THRESHOLD_CENTS = 60   # bid must reach this to trigger entry
+MOMENTUM_MAX_ENTRY_CENTS = 72   # skip if ask already above this (bad R/R)
 ENTRY_WAIT_SECONDS       = 180  # wait 3 min for direction to establish
 SCAN_WINDOW_SECONDS      = 480  # scan from min 3 to min 11 (8 min window)
 TAKE_PROFIT_CENTS        = 82   # exit when bid reaches this
@@ -367,13 +368,21 @@ def run_cycle(
         )
 
         if ob.yes_bid >= MOMENTUM_THRESHOLD_CENTS:
+            ask = ob.yes_ask
+            if ask > MOMENTUM_MAX_ENTRY_CENTS:
+                log.debug(f"[{ticker}] YES signal but ask={ask}c > max {MOMENTUM_MAX_ENTRY_CENTS}c — skipping")
+                continue
             filled_side = "yes"
-            entry_cents = ob.yes_ask
+            entry_cents = ask
             log.info(f"[{ticker}] MOMENTUM ENTRY: YES @ {entry_cents}c  (yes_bid={ob.yes_bid})")
             break
         elif ob.no_bid >= MOMENTUM_THRESHOLD_CENTS:
+            ask = ob.no_ask
+            if ask > MOMENTUM_MAX_ENTRY_CENTS:
+                log.debug(f"[{ticker}] NO signal but ask={ask}c > max {MOMENTUM_MAX_ENTRY_CENTS}c — skipping")
+                continue
             filled_side = "no"
-            entry_cents = ob.no_ask
+            entry_cents = ask
             log.info(f"[{ticker}] MOMENTUM ENTRY: NO @ {entry_cents}c  (no_bid={ob.no_bid})")
             break
     else:
