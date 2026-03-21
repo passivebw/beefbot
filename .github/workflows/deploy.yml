@@ -17,5 +17,6 @@ jobs:
           script: |
             cd /opt/kalshi-bot
             git pull origin master
+            venv/bin/pip install -q flask
             systemctl restart kalshi-bot
             echo "Deploy complete: $(date)"

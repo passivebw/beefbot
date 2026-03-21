@@ -40,6 +40,7 @@ from typing import Optional
 import httpx
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
+from flask import Flask, jsonify, request
 
 # ---------------------------------------------------------------------------
 # Series configuration
@@ -552,6 +553,93 @@ def stats_reporter(conn: sqlite3.Connection, stop_event: threading.Event) -> Non
             log.error(f"Stats error: {e}")
 
 # ---------------------------------------------------------------------------
+# Report HTTP server
+# ---------------------------------------------------------------------------
+
+_report_app = Flask(__name__)
+_report_conn: Optional[sqlite3.Connection] = None
+_bot_start_time = time.time()
+
+
+def _check_api_key() -> bool:
+    key = os.environ.get("BOT_API_KEY", "")
+    if not key:
+        return True  # no key configured = open
+    return request.headers.get("X-Bot-Api-Key") == key
+
+
+@_report_app.route("/health")
+def health():
+    return jsonify({"status": "ok", "uptime_s": int(time.time() - _bot_start_time)})
+
+
+@_report_app.route("/report")
+def report():
+    if not _check_api_key():
+        return jsonify({"error": "unauthorized"}), 401
+    if _report_conn is None:
+        return jsonify({"error": "db not ready"}), 503
+
+    rows_24h = _report_conn.execute(
+        """SELECT series, mode, side, entry_cents, exit_cents, exit_reason, pnl_cents, created_at
+           FROM bracket_trade_log
+           WHERE created_at >= datetime('now', '-24 hours')
+           ORDER BY created_at DESC LIMIT 100"""
+    ).fetchall()
+
+    summary = _report_conn.execute(
+        """SELECT series,
+                  COUNT(*) as trades,
+                  SUM(pnl_cents) as total_pnl,
+                  SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins
+           FROM bracket_trade_log
+           WHERE created_at >= datetime('now', '-24 hours')
+           GROUP BY series ORDER BY series"""
+    ).fetchall()
+
+    total_pnl = sum(r[2] or 0 for r in summary)
+    total_trades = sum(r[1] for r in summary)
+    total_wins = sum(r[3] or 0 for r in summary)
+
+    return jsonify({
+        "uptime_s": int(time.time() - _bot_start_time),
+        "summary": {
+            "trades_24h": total_trades,
+            "wins_24h": total_wins,
+            "win_pct": round(total_wins / total_trades * 100, 1) if total_trades else 0,
+            "pnl_cents": total_pnl,
+            "pnl_usd": round(total_pnl / 100, 2),
+        },
+        "by_series": [
+            {
+                "series": r[0],
+                "trades": r[1],
+                "pnl_cents": r[2] or 0,
+                "wins": r[3] or 0,
+                "win_pct": round((r[3] or 0) / r[1] * 100, 1) if r[1] else 0,
+            }
+            for r in summary
+        ],
+        "recent_trades": [
+            {
+                "series": r[0], "mode": r[1], "side": r[2],
+                "entry": r[3], "exit": r[4], "reason": r[5],
+                "pnl_cents": r[6], "time": r[7],
+            }
+            for r in rows_24h[:20]
+        ],
+    })
+
+
+def start_report_server(conn: sqlite3.Connection, port: int = 8000) -> None:
+    global _report_conn
+    _report_conn = conn
+    import logging as _logging
+    _logging.getLogger("werkzeug").setLevel(_logging.ERROR)
+    _report_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -609,6 +697,16 @@ def main() -> None:
         daemon=True,
     )
     stats_t.start()
+
+    # Start report HTTP server
+    report_t = threading.Thread(
+        target=start_report_server,
+        args=(conn,),
+        name="report-server",
+        daemon=True,
+    )
+    report_t.start()
+    log.info("Report server started on port 8000")
 
     log.info(f"All {len(SERIES)} market workers started. Press Ctrl+C to stop.")
 

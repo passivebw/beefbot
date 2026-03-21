@@ -1,4 +1,5 @@
 aiohttp
+flask
 aiosqlite
 asyncio-throttle
 cryptography
