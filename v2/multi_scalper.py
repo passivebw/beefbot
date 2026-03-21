@@ -72,7 +72,8 @@ ORDER_POLL_INTERVAL  = 5   # seconds between fill/exit checks
 SL_POLL_INTERVAL     = 1   # fast polling when near stop loss
 
 # External confirmation filters
-PRICE_MOMENTUM_MIN_PCT   = 0.10  # require at least 0.10% price move in signal direction
+PRICE_MOMENTUM_MIN_PCT   = 0.05  # require at least 0.05% price move in signal direction
+VOLUME_RATIO_MIN         = 1.2   # last candle volume must be 1.2x the recent average
 FUNDING_RATE_MAX         = 0.0010  # skip if funding rate strongly opposes direction (0.10%)
 FEAR_GREED_EXTREME       = 20    # skip if F&G < 20 (extreme fear) on YES, or > 80 on NO
 
@@ -310,20 +311,34 @@ class ExternalData:
         self._http = httpx.Client(timeout=5.0)
         self._fg_cache: tuple[float, int] = (0.0, 50)  # (timestamp, value)
 
-    def price_momentum_pct(self, symbol: str, minutes: int = 5) -> Optional[float]:
-        """Return % price change over last `minutes` 1-min candles. None on error."""
+    def price_and_volume(self, symbol: str, lookback: int = 10) -> Optional[dict]:
+        """
+        Return last-1min momentum + volume ratio vs recent average.
+        lookback=10 means compare last candle volume to 10-candle average.
+        """
         try:
             r = self._http.get(
                 f"{self.BINANCE_SPOT}/klines",
-                params={"symbol": symbol, "interval": "1m", "limit": minutes + 1},
+                params={"symbol": symbol, "interval": "1m", "limit": lookback + 1},
             )
             r.raise_for_status()
             candles = r.json()
-            if len(candles) < 2:
+            if len(candles) < 3:
                 return None
-            open_price  = float(candles[0][1])
-            close_price = float(candles[-1][4])
-            return (close_price - open_price) / open_price * 100
+
+            # Last completed candle (index -2), current forming candle (index -1)
+            last     = candles[-2]
+            baseline = candles[:-1]  # all but the forming candle
+
+            last_open   = float(last[1])
+            last_close  = float(last[4])
+            last_volume = float(last[5])
+            avg_volume  = sum(float(c[5]) for c in baseline) / len(baseline)
+
+            momentum_pct  = (last_close - last_open) / last_open * 100
+            volume_ratio  = last_volume / avg_volume if avg_volume > 0 else 1.0
+
+            return {"momentum_pct": momentum_pct, "volume_ratio": volume_ratio}
         except Exception:
             return None
 
@@ -365,20 +380,25 @@ class ExternalData:
         if not symbol:
             return True  # no mapping = no filter
 
-        # 1. Price momentum must match direction
-        momentum = self.price_momentum_pct(symbol)
-        if momentum is not None:
+        # 1. Price momentum + volume must confirm direction
+        pv = self.price_and_volume(symbol)
+        if pv is not None:
+            momentum = pv["momentum_pct"]
+            vol_ratio = pv["volume_ratio"]
             up = momentum > PRICE_MOMENTUM_MIN_PCT
             dn = momentum < -PRICE_MOMENTUM_MIN_PCT
             if side == "yes" and not up:
-                log.info(f"CONFIRM FAIL: {symbol} momentum={momentum:+.3f}% — need up for YES")
+                log.info(f"CONFIRM FAIL: {symbol} momentum={momentum:+.3f}% vol={vol_ratio:.2f}x — need up for YES")
                 return False
             if side == "no" and not dn:
-                log.info(f"CONFIRM FAIL: {symbol} momentum={momentum:+.3f}% — need down for NO")
+                log.info(f"CONFIRM FAIL: {symbol} momentum={momentum:+.3f}% vol={vol_ratio:.2f}x — need down for NO")
                 return False
-            log.debug(f"CONFIRM OK: {symbol} momentum={momentum:+.3f}%")
+            if vol_ratio < VOLUME_RATIO_MIN:
+                log.info(f"CONFIRM FAIL: {symbol} volume={vol_ratio:.2f}x < {VOLUME_RATIO_MIN}x avg — low conviction")
+                return False
+            log.debug(f"CONFIRM OK: {symbol} momentum={momentum:+.3f}% vol={vol_ratio:.2f}x")
         else:
-            log.debug(f"CONFIRM: {symbol} momentum unavailable — skipping check")
+            log.debug(f"CONFIRM: {symbol} price/volume unavailable — skipping check")
 
         # 2. Funding rate — skip if strongly opposing
         funding = self.funding_rate(symbol)
