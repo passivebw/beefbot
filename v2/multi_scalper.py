@@ -271,12 +271,12 @@ class KalshiClient:
             params={"depth": 1},
         )
         r.raise_for_status()
-        ob = r.json().get("orderbook", {})
-        yes_bids = ob.get("yes", [])
-        no_bids  = ob.get("no", [])
+        ob = r.json().get("orderbook_fp", {})
+        yes_bids = ob.get("yes_dollars", [])
+        no_bids  = ob.get("no_dollars", [])
 
-        yes_bid = yes_bids[0][0] if yes_bids else 0
-        no_bid  = no_bids[0][0]  if no_bids  else 0
+        yes_bid = int(float(yes_bids[0][0]) * 100) if yes_bids else 0
+        no_bid  = int(float(no_bids[0][0]) * 100)  if no_bids  else 0
         yes_ask = 100 - no_bid
         no_ask  = 100 - yes_bid
 
@@ -412,7 +412,7 @@ def run_cycle(
             log.warning(f"[{ticker}] Orderbook error: {e}")
             continue
 
-        log.debug(
+        log.info(
             f"[{ticker}] ob: yes_bid={ob.yes_bid} yes_ask={ob.yes_ask} "
             f"no_bid={ob.no_bid} no_ask={ob.no_ask}  tte={tte:.0f}s"
         )
