@@ -71,6 +71,20 @@ MARKET_POLL_INTERVAL = 2   # seconds between contract detection polls
 ORDER_POLL_INTERVAL  = 5   # seconds between fill/exit checks
 SL_POLL_INTERVAL     = 1   # fast polling when near stop loss
 
+# External confirmation filters
+PRICE_MOMENTUM_MIN_PCT   = 0.10  # require at least 0.10% price move in signal direction
+FUNDING_RATE_MAX         = 0.0010  # skip if funding rate strongly opposes direction (0.10%)
+FEAR_GREED_EXTREME       = 20    # skip if F&G < 20 (extreme fear) on YES, or > 80 on NO
+
+# Binance symbol mapping
+BINANCE_SYMBOL = {
+    "KXBTC15M":  "BTCUSDT",
+    "KXSOL15M":  "SOLUSDT",
+    "KXXRP15M":  "XRPUSDT",
+    "KXDOGE15M": "DOGEUSDT",
+    "KXHYPE15M": "HYPEUSDT",
+}
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -282,6 +296,118 @@ class KalshiClient:
         self._http.close()
 
 # ---------------------------------------------------------------------------
+# External market data (Binance + Fear & Greed)
+# ---------------------------------------------------------------------------
+
+class ExternalData:
+    """Fetches Binance price momentum, funding rate, and Fear & Greed index."""
+
+    BINANCE_SPOT    = "https://api.binance.com/api/v3"
+    BINANCE_FUTURES = "https://fapi.binance.com/fapi/v1"
+    FEAR_GREED_URL  = "https://api.alternative.me/fng/?limit=1"
+
+    def __init__(self) -> None:
+        self._http = httpx.Client(timeout=5.0)
+        self._fg_cache: tuple[float, int] = (0.0, 50)  # (timestamp, value)
+
+    def price_momentum_pct(self, symbol: str, minutes: int = 5) -> Optional[float]:
+        """Return % price change over last `minutes` 1-min candles. None on error."""
+        try:
+            r = self._http.get(
+                f"{self.BINANCE_SPOT}/klines",
+                params={"symbol": symbol, "interval": "1m", "limit": minutes + 1},
+            )
+            r.raise_for_status()
+            candles = r.json()
+            if len(candles) < 2:
+                return None
+            open_price  = float(candles[0][1])
+            close_price = float(candles[-1][4])
+            return (close_price - open_price) / open_price * 100
+        except Exception:
+            return None
+
+    def funding_rate(self, symbol: str) -> Optional[float]:
+        """Return latest perpetual funding rate. Positive = longs pay shorts."""
+        try:
+            r = self._http.get(
+                f"{self.BINANCE_FUTURES}/fundingRate",
+                params={"symbol": symbol, "limit": 1},
+            )
+            r.raise_for_status()
+            data = r.json()
+            if not data:
+                return None
+            return float(data[0]["fundingRate"])
+        except Exception:
+            return None
+
+    def fear_greed(self) -> int:
+        """Return Fear & Greed index (0=extreme fear, 100=extreme greed). Cached 10min."""
+        now = time.time()
+        if now - self._fg_cache[0] < 600:
+            return self._fg_cache[1]
+        try:
+            r = self._http.get(self.FEAR_GREED_URL)
+            r.raise_for_status()
+            value = int(r.json()["data"][0]["value"])
+            self._fg_cache = (now, value)
+            return value
+        except Exception:
+            return self._fg_cache[1]  # return cached on error
+
+    def confirm_entry(self, series: str, side: str, log: logging.LoggerAdapter) -> bool:
+        """
+        Returns True if external signals confirm the Kalshi momentum signal.
+        Checks: price momentum direction, funding rate, fear & greed.
+        """
+        symbol = BINANCE_SYMBOL.get(series)
+        if not symbol:
+            return True  # no mapping = no filter
+
+        # 1. Price momentum must match direction
+        momentum = self.price_momentum_pct(symbol)
+        if momentum is not None:
+            up = momentum > PRICE_MOMENTUM_MIN_PCT
+            dn = momentum < -PRICE_MOMENTUM_MIN_PCT
+            if side == "yes" and not up:
+                log.info(f"CONFIRM FAIL: {symbol} momentum={momentum:+.3f}% — need up for YES")
+                return False
+            if side == "no" and not dn:
+                log.info(f"CONFIRM FAIL: {symbol} momentum={momentum:+.3f}% — need down for NO")
+                return False
+            log.debug(f"CONFIRM OK: {symbol} momentum={momentum:+.3f}%")
+        else:
+            log.debug(f"CONFIRM: {symbol} momentum unavailable — skipping check")
+
+        # 2. Funding rate — skip if strongly opposing
+        funding = self.funding_rate(symbol)
+        if funding is not None:
+            if side == "yes" and funding > FUNDING_RATE_MAX:
+                log.info(f"CONFIRM FAIL: {symbol} funding={funding:.4f} too high for YES (over-extended long)")
+                return False
+            if side == "no" and funding < -FUNDING_RATE_MAX:
+                log.info(f"CONFIRM FAIL: {symbol} funding={funding:.4f} too negative for NO (over-extended short)")
+                return False
+            log.debug(f"CONFIRM OK: {symbol} funding={funding:.4f}")
+
+        # 3. Fear & Greed extreme filter
+        fg = self.fear_greed()
+        if side == "yes" and fg < FEAR_GREED_EXTREME:
+            log.info(f"CONFIRM FAIL: Fear&Greed={fg} extreme fear — skip YES")
+            return False
+        if side == "no" and fg > (100 - FEAR_GREED_EXTREME):
+            log.info(f"CONFIRM FAIL: Fear&Greed={fg} extreme greed — skip NO")
+            return False
+        log.debug(f"CONFIRM OK: Fear&Greed={fg}")
+
+        return True
+
+    def close(self) -> None:
+        self._http.close()
+
+
+# ---------------------------------------------------------------------------
 # Strategy helpers
 # ---------------------------------------------------------------------------
 
@@ -329,6 +455,7 @@ def current_mid(ob: OrderBook, side: str) -> int:
 
 def run_cycle(
     client: KalshiClient,
+    ext: ExternalData,
     conn: sqlite3.Connection,
     log: logging.LoggerAdapter,
     series: str,
@@ -375,6 +502,8 @@ def run_cycle(
             if ask > MOMENTUM_MAX_ENTRY_CENTS:
                 log.debug(f"[{ticker}] YES signal but ask={ask}c > max {MOMENTUM_MAX_ENTRY_CENTS}c — skipping")
                 continue
+            if not ext.confirm_entry(series, "yes", log):
+                continue
             filled_side = "yes"
             entry_cents = ask
             log.info(f"[{ticker}] MOMENTUM ENTRY: YES @ {entry_cents}c  (yes_bid={ob.yes_bid})")
@@ -383,6 +512,8 @@ def run_cycle(
             ask = ob.no_ask
             if ask > MOMENTUM_MAX_ENTRY_CENTS:
                 log.debug(f"[{ticker}] NO signal but ask={ask}c > max {MOMENTUM_MAX_ENTRY_CENTS}c — skipping")
+                continue
+            if not ext.confirm_entry(series, "no", log):
                 continue
             filled_side = "no"
             entry_cents = ask
@@ -473,6 +604,7 @@ def series_worker(
 ) -> None:
     log = get_log(series)
     client = KalshiClient(auth)
+    ext    = ExternalData()
     known_ticker: Optional[str] = None
 
     log.info(f"Worker started — series={series}")
@@ -505,7 +637,7 @@ def series_worker(
         known_ticker = ticker
 
         try:
-            run_cycle(client, conn, log, series, ticker, expiry_ts)
+            run_cycle(client, ext, conn, log, series, ticker, expiry_ts)
         except Exception as e:
             log.error(f"Cycle error: {e}", exc_info=True)
 
@@ -514,6 +646,7 @@ def series_worker(
             sleep_until_next_contract(log)
 
     client.close()
+    ext.close()
     log.info("Worker stopped.")
 
 # ---------------------------------------------------------------------------
