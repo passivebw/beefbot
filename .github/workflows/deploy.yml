@@ -1,0 +1,22 @@
+name: Deploy to BeefBot
+
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to BeefBot
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 143.198.172.60
+          username: root
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd /opt/kalshi-bot
+            git pull origin master
+            pkill -9 -f multi_scalper || true
+            nohup venv/bin/python3 v2/multi_scalper.py >> logs/multi_scalper.log 2>&1 &
+            echo "Deploy complete: $(date)"
