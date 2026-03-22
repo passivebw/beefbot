@@ -625,6 +625,9 @@ def run_cycle(
             if ask > MOMENTUM_MAX_ENTRY_CENTS:
                 log.debug(f"[{ticker}] YES signal but ask={ask}c > max {MOMENTUM_MAX_ENTRY_CENTS}c — skipping")
                 continue
+            if (TAKE_PROFIT_CENTS - ask) < (ask - STOP_LOSS_CENTS):
+                log.debug(f"[{ticker}] YES signal but R/R unfavorable at ask={ask}c (win={TAKE_PROFIT_CENTS-ask}c < loss={ask-STOP_LOSS_CENTS}c) — skipping")
+                continue
             if not ext.confirm_entry(series, "yes", log):
                 continue
             filled_side = "yes"
@@ -635,6 +638,9 @@ def run_cycle(
             ask = ob.no_ask
             if ask > MOMENTUM_MAX_ENTRY_CENTS:
                 log.debug(f"[{ticker}] NO signal but ask={ask}c > max {MOMENTUM_MAX_ENTRY_CENTS}c — skipping")
+                continue
+            if (TAKE_PROFIT_CENTS - ask) < (ask - STOP_LOSS_CENTS):
+                log.debug(f"[{ticker}] NO signal but R/R unfavorable at ask={ask}c (win={TAKE_PROFIT_CENTS-ask}c < loss={ask-STOP_LOSS_CENTS}c) — skipping")
                 continue
             if not ext.confirm_entry(series, "no", log):
                 continue
