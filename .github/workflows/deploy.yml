@@ -18,5 +18,49 @@ jobs:
             cd /opt/kalshi-bot
             git pull origin master
             venv/bin/pip install -q flask
-            systemctl restart kalshi-bot
+
+            # Stop old single-profile service if still running
+            systemctl stop kalshi-bot 2>/dev/null || true
+            systemctl disable kalshi-bot 2>/dev/null || true
+
+            # Create service files if they don't exist
+            for PROFILE in conservative moderate risky; do
+              SERVICE="kalshi-bot-${PROFILE}"
+              FILE="/etc/systemd/system/${SERVICE}.service"
+              if [ ! -f "$FILE" ]; then
+                case $PROFILE in
+                  conservative) PORT=8001 ;;
+                  moderate)     PORT=8000 ;;
+                  risky)        PORT=8002 ;;
+                esac
+                cat > "$FILE" << EOF
+[Unit]
+Description=Kalshi Bot (${PROFILE})
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/kalshi-bot
+ExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile ${PROFILE} --port ${PORT}
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:/opt/kalshi-bot/logs/${PROFILE}.log
+StandardError=append:/opt/kalshi-bot/logs/${PROFILE}.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+                systemctl daemon-reload
+                systemctl enable "$SERVICE"
+                echo "Created and enabled $SERVICE"
+              fi
+            done
+
+            # Restart all 3 bots
+            systemctl restart kalshi-bot-conservative
+            systemctl restart kalshi-bot-moderate
+            systemctl restart kalshi-bot-risky
+
             echo "Deploy complete: $(date)"
+            systemctl is-active kalshi-bot-conservative kalshi-bot-moderate kalshi-bot-risky

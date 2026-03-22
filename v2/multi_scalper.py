@@ -23,6 +23,7 @@ Output:
 
 from __future__ import annotations
 
+import argparse
 import base64
 import logging
 import math
@@ -70,6 +71,61 @@ CONTRACTS                = 1
 MARKET_POLL_INTERVAL = 2   # seconds between contract detection polls
 ORDER_POLL_INTERVAL  = 5   # seconds between fill/exit checks
 SL_POLL_INTERVAL     = 1   # fast polling when near stop loss
+
+# ---------------------------------------------------------------------------
+# Risk profiles — loaded at startup via --profile arg
+# ---------------------------------------------------------------------------
+
+PROFILES: dict[str, dict] = {
+    "conservative": {
+        # Fewer trades, higher-quality signals, best R/R (~49% breakeven)
+        "MOMENTUM_THRESHOLD_CENTS": 68,   # only very strong Kalshi signal
+        "MOMENTUM_MAX_ENTRY_CENTS": 71,   # tight cap → avg entry ~70c
+        "ENTRY_WAIT_SECONDS":       240,  # 4 min for direction to establish
+        "SCAN_WINDOW_SECONDS":      360,  # stop scanning at minute 10
+        "TAKE_PROFIT_CENTS":        88,   # +18c win from avg entry
+        "STOP_LOSS_CENTS":          53,   # -17c loss → breakeven ~49%
+        "SL_ALERT_CENTS":           57,
+        "TIME_STOP_SECONDS":        120,
+        "PRICE_MOMENTUM_MIN_PCT":   0.10, # strong Binance confirmation
+        "VOLUME_RATIO_MIN":         1.5,  # high volume conviction
+        "FUNDING_RATE_MAX":         0.0008,
+        "FEAR_GREED_EXTREME":       25,
+    },
+    "moderate": {
+        # Balanced — current live params (~54% breakeven)
+        "MOMENTUM_THRESHOLD_CENTS": 65,
+        "MOMENTUM_MAX_ENTRY_CENTS": 72,
+        "ENTRY_WAIT_SECONDS":       180,
+        "SCAN_WINDOW_SECONDS":      480,
+        "TAKE_PROFIT_CENTS":        85,
+        "STOP_LOSS_CENTS":          50,
+        "SL_ALERT_CENTS":           55,
+        "TIME_STOP_SECONDS":        120,
+        "PRICE_MOMENTUM_MIN_PCT":   0.05,
+        "VOLUME_RATIO_MIN":         1.2,
+        "FUNDING_RATE_MAX":         0.0010,
+        "FEAR_GREED_EXTREME":       20,
+    },
+    "risky": {
+        # More trades, weaker filters, high variance (~51% breakeven)
+        "MOMENTUM_THRESHOLD_CENTS": 60,   # enter on weaker signals
+        "MOMENTUM_MAX_ENTRY_CENTS": 76,   # wider entry range
+        "ENTRY_WAIT_SECONDS":       120,  # 2 min wait
+        "SCAN_WINDOW_SECONDS":      600,  # scan almost until time stop
+        "TAKE_PROFIT_CENTS":        90,   # swing for bigger wins
+        "STOP_LOSS_CENTS":          45,   # wide stop
+        "SL_ALERT_CENTS":           52,
+        "TIME_STOP_SECONDS":        90,   # hold longer before forcing exit
+        "PRICE_MOMENTUM_MIN_PCT":   0.02, # near-zero Binance filter
+        "VOLUME_RATIO_MIN":         1.0,  # no volume requirement
+        "FUNDING_RATE_MAX":         0.0020,
+        "FEAR_GREED_EXTREME":       10,   # only skip extreme extremes
+    },
+}
+
+# Active profile name — set by --profile arg in main()
+ACTIVE_PROFILE = "moderate"
 
 # External confirmation filters
 PRICE_MOMENTUM_MIN_PCT   = 0.05  # require at least 0.05% price move in signal direction
@@ -151,6 +207,7 @@ CREATE TABLE IF NOT EXISTS bracket_trade_log (
     created_at    TEXT    NOT NULL DEFAULT (datetime('now','utc')),
     kalshi_ticker TEXT    NOT NULL,
     series        TEXT    NOT NULL,
+    profile       TEXT    NOT NULL DEFAULT 'moderate',
     mode          TEXT    NOT NULL,   -- 'bracket' or 'directional'
     side          TEXT    NOT NULL,
     contracts     INTEGER NOT NULL,
@@ -174,6 +231,8 @@ def init_db(db_path: str) -> sqlite3.Connection:
     cols = {row[1] for row in conn.execute("PRAGMA table_info(bracket_trade_log)")}
     if "series" not in cols:
         conn.execute("ALTER TABLE bracket_trade_log ADD COLUMN series TEXT NOT NULL DEFAULT ''")
+    if "profile" not in cols:
+        conn.execute("ALTER TABLE bracket_trade_log ADD COLUMN profile TEXT NOT NULL DEFAULT 'moderate'")
     conn.commit()
     return conn
 
@@ -182,6 +241,7 @@ def log_trade(
     conn: sqlite3.Connection,
     ticker: str,
     series: str,
+    profile: str,
     mode: str,
     side: str,
     entry_cents: int,
@@ -192,10 +252,10 @@ def log_trade(
     with _db_lock:
         conn.execute(
             """INSERT INTO bracket_trade_log
-               (kalshi_ticker,series,mode,side,contracts,entry_cents,
+               (kalshi_ticker,series,profile,mode,side,contracts,entry_cents,
                 exit_cents,exit_reason,pnl_cents,pnl_usd)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
-            (ticker, series, mode, side, CONTRACTS, entry_cents,
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (ticker, series, profile, mode, side, CONTRACTS, entry_cents,
              exit_cents, exit_reason, pnl_cents, pnl_cents / 100.0),
         )
         conn.commit()
@@ -482,6 +542,7 @@ def run_cycle(
     conn: sqlite3.Connection,
     log: logging.LoggerAdapter,
     series: str,
+    profile: str,
     ticker: str,
     expiry_ts: float,
 ) -> None:
@@ -605,7 +666,7 @@ def run_cycle(
     sign = "+" if pnl_cents >= 0 else ""
 
     log_trade(
-        conn, ticker, series, "momentum", filled_side,
+        conn, ticker, series, profile, "momentum", filled_side,
         entry_cents, exit_cents, exit_reason, pnl_cents * CONTRACTS,
     )
 
@@ -621,6 +682,7 @@ def run_cycle(
 
 def series_worker(
     series: str,
+    profile: str,
     auth: KalshiAuth,
     conn: sqlite3.Connection,
     stop_event: threading.Event,
@@ -630,7 +692,7 @@ def series_worker(
     ext    = ExternalData()
     known_ticker: Optional[str] = None
 
-    log.info(f"Worker started — series={series}")
+    log.info(f"Worker started — series={series} profile={profile}")
 
     # Sleep until just before next 15-min boundary
     sleep_until_next_contract(log)
@@ -660,7 +722,7 @@ def series_worker(
         known_ticker = ticker
 
         try:
-            run_cycle(client, ext, conn, log, series, ticker, expiry_ts)
+            run_cycle(client, ext, conn, log, series, profile, ticker, expiry_ts)
         except Exception as e:
             log.error(f"Cycle error: {e}", exc_info=True)
 
@@ -741,25 +803,35 @@ def report():
         return jsonify({"error": "db not ready"}), 503
 
     rows_24h = _report_conn.execute(
-        """SELECT series, mode, side, entry_cents, exit_cents, exit_reason, pnl_cents, created_at
+        """SELECT series, profile, mode, side, entry_cents, exit_cents, exit_reason, pnl_cents, created_at
            FROM bracket_trade_log
            WHERE created_at >= datetime('now', '-24 hours')
            ORDER BY created_at DESC LIMIT 100"""
     ).fetchall()
 
-    summary = _report_conn.execute(
-        """SELECT series,
+    by_series = _report_conn.execute(
+        """SELECT series, profile,
                   COUNT(*) as trades,
                   SUM(pnl_cents) as total_pnl,
                   SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins
            FROM bracket_trade_log
            WHERE created_at >= datetime('now', '-24 hours')
-           GROUP BY series ORDER BY series"""
+           GROUP BY series, profile ORDER BY profile, series"""
     ).fetchall()
 
-    total_pnl = sum(r[2] or 0 for r in summary)
-    total_trades = sum(r[1] for r in summary)
-    total_wins = sum(r[3] or 0 for r in summary)
+    by_profile = _report_conn.execute(
+        """SELECT profile,
+                  COUNT(*) as trades,
+                  SUM(pnl_cents) as total_pnl,
+                  SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins
+           FROM bracket_trade_log
+           WHERE created_at >= datetime('now', '-24 hours')
+           GROUP BY profile ORDER BY profile"""
+    ).fetchall()
+
+    total_pnl    = sum(r[3] or 0 for r in by_series)
+    total_trades = sum(r[2] for r in by_series)
+    total_wins   = sum(r[4] or 0 for r in by_series)
 
     return jsonify({
         "uptime_s": int(time.time() - _bot_start_time),
@@ -770,28 +842,40 @@ def report():
             "pnl_cents": total_pnl,
             "pnl_usd": round(total_pnl / 100, 2),
         },
-        "by_series": [
+        "by_profile": [
             {
-                "series": r[0],
+                "profile": r[0],
                 "trades": r[1],
                 "pnl_cents": r[2] or 0,
                 "wins": r[3] or 0,
                 "win_pct": round((r[3] or 0) / r[1] * 100, 1) if r[1] else 0,
+                "pnl_usd": round((r[2] or 0) / 100, 2),
             }
-            for r in summary
+            for r in by_profile
+        ],
+        "by_series": [
+            {
+                "series": r[0],
+                "profile": r[1],
+                "trades": r[2],
+                "pnl_cents": r[3] or 0,
+                "wins": r[4] or 0,
+                "win_pct": round((r[4] or 0) / r[2] * 100, 1) if r[2] else 0,
+            }
+            for r in by_series
         ],
         "recent_trades": [
             {
-                "series": r[0], "mode": r[1], "side": r[2],
-                "entry": r[3], "exit": r[4], "reason": r[5],
-                "pnl_cents": r[6], "time": r[7],
+                "series": r[0], "profile": r[1], "mode": r[2], "side": r[3],
+                "entry": r[4], "exit": r[5], "reason": r[6],
+                "pnl_cents": r[7], "time": r[8],
             }
             for r in rows_24h[:20]
         ],
     })
 
 
-def start_report_server(conn: sqlite3.Connection, port: int = 8000) -> None:
+def start_report_server(conn: sqlite3.Connection, port: int) -> None:
     global _report_conn
     _report_conn = conn
     import logging as _logging
@@ -804,17 +888,59 @@ def start_report_server(conn: sqlite3.Connection, port: int = 8000) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    global _root_log
+    global _root_log, ACTIVE_PROFILE
+    global MOMENTUM_THRESHOLD_CENTS, MOMENTUM_MAX_ENTRY_CENTS, ENTRY_WAIT_SECONDS
+    global SCAN_WINDOW_SECONDS, TAKE_PROFIT_CENTS, STOP_LOSS_CENTS, SL_ALERT_CENTS
+    global TIME_STOP_SECONDS, PRICE_MOMENTUM_MIN_PCT, VOLUME_RATIO_MIN
+    global FUNDING_RATE_MAX, FEAR_GREED_EXTREME
+
+    parser = argparse.ArgumentParser(description="Kalshi Multi-Market Paper Scalper")
+    parser.add_argument(
+        "--profile", choices=list(PROFILES.keys()), default="moderate",
+        help="Risk profile to run (conservative / moderate / risky)",
+    )
+    parser.add_argument(
+        "--port", type=int, default=None,
+        help="HTTP report server port (default: 8001/8000/8002 per profile)",
+    )
+    args = parser.parse_args()
+
+    ACTIVE_PROFILE = args.profile
+    profile_cfg = PROFILES[ACTIVE_PROFILE]
+
+    # Apply profile params as module globals so all functions pick them up
+    MOMENTUM_THRESHOLD_CENTS = profile_cfg["MOMENTUM_THRESHOLD_CENTS"]
+    MOMENTUM_MAX_ENTRY_CENTS = profile_cfg["MOMENTUM_MAX_ENTRY_CENTS"]
+    ENTRY_WAIT_SECONDS       = profile_cfg["ENTRY_WAIT_SECONDS"]
+    SCAN_WINDOW_SECONDS      = profile_cfg["SCAN_WINDOW_SECONDS"]
+    TAKE_PROFIT_CENTS        = profile_cfg["TAKE_PROFIT_CENTS"]
+    STOP_LOSS_CENTS          = profile_cfg["STOP_LOSS_CENTS"]
+    SL_ALERT_CENTS           = profile_cfg["SL_ALERT_CENTS"]
+    TIME_STOP_SECONDS        = profile_cfg["TIME_STOP_SECONDS"]
+    PRICE_MOMENTUM_MIN_PCT   = profile_cfg["PRICE_MOMENTUM_MIN_PCT"]
+    VOLUME_RATIO_MIN         = profile_cfg["VOLUME_RATIO_MIN"]
+    FUNDING_RATE_MAX         = profile_cfg["FUNDING_RATE_MAX"]
+    FEAR_GREED_EXTREME       = profile_cfg["FEAR_GREED_EXTREME"]
+
+    # Default port per profile so all 3 can run simultaneously
+    default_ports = {"conservative": 8001, "moderate": 8000, "risky": 8002}
+    port = args.port if args.port is not None else default_ports[ACTIVE_PROFILE]
+
     _load_dotenv(".env")
+
+    # Per-profile log file so logs don't interleave
+    global LOG_PATH
+    LOG_PATH = f"./logs/{ACTIVE_PROFILE}.log"
     _root_log = setup_logging()
 
     log = get_log("MAIN")
     log.info("=" * 60)
-    log.info("Multi-Market Scalper  [PAPER MODE]")
+    log.info(f"Multi-Market Scalper  [PAPER MODE]  profile={ACTIVE_PROFILE.upper()}")
     log.info(f"Markets  : {', '.join(SERIES)}")
-    log.info(f"Strategy : MOMENTUM FOLLOW")
-    log.info(f"Signal   : bid >= {MOMENTUM_THRESHOLD_CENTS}c after {ENTRY_WAIT_SECONDS}s")
-    log.info(f"Exit     : TP={TAKE_PROFIT_CENTS}c  SL={STOP_LOSS_CENTS}c(mid)  TimeStop={TIME_STOP_SECONDS}s")
+    log.info(f"Signal   : bid >= {MOMENTUM_THRESHOLD_CENTS}c after {ENTRY_WAIT_SECONDS}s  max_entry={MOMENTUM_MAX_ENTRY_CENTS}c")
+    log.info(f"Exit     : TP={TAKE_PROFIT_CENTS}c  SL={STOP_LOSS_CENTS}c  TimeStop={TIME_STOP_SECONDS}s")
+    log.info(f"Filters  : momentum>={PRICE_MOMENTUM_MIN_PCT}%  vol>={VOLUME_RATIO_MIN}x  funding<={FUNDING_RATE_MAX}")
+    log.info(f"Report   : http://0.0.0.0:{port}/report")
     log.info("=" * 60)
 
     api_key  = os.environ.get("KALSHI_API_KEY", "b16ab35a-2d26-4bd3-93c6-a1e8fd6c7a95")
@@ -841,7 +967,7 @@ def main() -> None:
     for series in SERIES:
         t = threading.Thread(
             target=series_worker,
-            args=(series, auth, conn, stop_event),
+            args=(series, ACTIVE_PROFILE, auth, conn, stop_event),
             name=f"worker-{series}",
             daemon=True,
         )
@@ -861,12 +987,12 @@ def main() -> None:
     # Start report HTTP server
     report_t = threading.Thread(
         target=start_report_server,
-        args=(conn,),
+        args=(conn, port),
         name="report-server",
         daemon=True,
     )
     report_t.start()
-    log.info("Report server started on port 8000")
+    log.info(f"Report server started on port {port}")
 
     log.info(f"All {len(SERIES)} market workers started. Press Ctrl+C to stop.")
 
