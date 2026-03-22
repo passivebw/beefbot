@@ -48,11 +48,11 @@ from flask import Flask, jsonify, request
 
 SERIES = [
     "KXBTC15M",
-    # "KXETH15M",   # dropped: 33.3% win rate, no edge
+    "KXETH15M",
     "KXSOL15M",
     "KXXRP15M",
     "KXDOGE15M",
-    # "KXBNB15M",   # dropped: 29.7% win rate, no edge
+    "KXBNB15M",
     "KXHYPE15M",
 ]
 
