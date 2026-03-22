@@ -61,7 +61,7 @@ MOMENTUM_THRESHOLD_CENTS = 65   # raised from 60: require stronger conviction
 MOMENTUM_MAX_ENTRY_CENTS = 72   # skip if ask already above this (bad R/R)
 ENTRY_WAIT_SECONDS       = 180  # wait 3 min for direction to establish
 SCAN_WINDOW_SECONDS      = 480  # scan from min 3 to min 11 (8 min window)
-TAKE_PROFIT_CENTS        = 82   # exit when bid reaches this
+TAKE_PROFIT_CENTS        = 85   # exit when bid reaches this
 STOP_LOSS_CENTS          = 50   # exit if mid drops back to 50c
 SL_ALERT_CENTS           = 55   # switch to fast polling when mid drops here
 TIME_STOP_SECONDS        = 120  # exit at whatever price with 2 min left
@@ -80,9 +80,11 @@ FEAR_GREED_EXTREME       = 20    # skip if F&G < 20 (extreme fear) on YES, or > 
 # Binance symbol mapping
 BINANCE_SYMBOL = {
     "KXBTC15M":  "BTCUSDT",
+    "KXETH15M":  "ETHUSDT",
     "KXSOL15M":  "SOLUSDT",
     "KXXRP15M":  "XRPUSDT",
     "KXDOGE15M": "DOGEUSDT",
+    "KXBNB15M":  "BNBUSDT",
     "KXHYPE15M": "HYPEUSDT",
 }
 
@@ -313,13 +315,14 @@ class ExternalData:
 
     def price_and_volume(self, symbol: str, lookback: int = 10) -> Optional[dict]:
         """
-        Return last-1min momentum + volume ratio vs recent average.
+        Return last-15min momentum + volume ratio vs recent average.
+        Uses 15m candles to match Kalshi contract timeframe.
         lookback=10 means compare last candle volume to 10-candle average.
         """
         try:
             r = self._http.get(
                 f"{self.BINANCE_SPOT}/klines",
-                params={"symbol": symbol, "interval": "1m", "limit": lookback + 1},
+                params={"symbol": symbol, "interval": "15m", "limit": lookback + 1},
             )
             r.raise_for_status()
             candles = r.json()
