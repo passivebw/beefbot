@@ -23,44 +23,16 @@ jobs:
             systemctl stop kalshi-bot 2>/dev/null || true
             systemctl disable kalshi-bot 2>/dev/null || true
 
-            # Create service files if they don't exist
-            for PROFILE in conservative moderate risky; do
-              SERVICE="kalshi-bot-${PROFILE}"
-              FILE="/etc/systemd/system/${SERVICE}.service"
-              if [ ! -f "$FILE" ]; then
-                case $PROFILE in
-                  conservative) PORT=8001 ;;
-                  moderate)     PORT=8000 ;;
-                  risky)        PORT=8002 ;;
-                esac
-                cat > "$FILE" << EOF
-[Unit]
-Description=Kalshi Bot (${PROFILE})
-After=network.target
+            # Write service files using printf (avoids heredoc issues in SSH)
+            printf '[Unit]\nDescription=Kalshi Bot (conservative)\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile conservative --port 8001\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/conservative.log\nStandardError=append:/opt/kalshi-bot/logs/conservative.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-conservative.service
 
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/opt/kalshi-bot
-ExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile ${PROFILE} --port ${PORT}
-Restart=on-failure
-RestartSec=10
-StandardOutput=append:/opt/kalshi-bot/logs/${PROFILE}.log
-StandardError=append:/opt/kalshi-bot/logs/${PROFILE}.log
+            printf '[Unit]\nDescription=Kalshi Bot (moderate)\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile moderate --port 8000\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/moderate.log\nStandardError=append:/opt/kalshi-bot/logs/moderate.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-moderate.service
 
-[Install]
-WantedBy=multi-user.target
-EOF
-                systemctl daemon-reload
-                systemctl enable "$SERVICE"
-                echo "Created and enabled $SERVICE"
-              fi
-            done
+            printf '[Unit]\nDescription=Kalshi Bot (risky)\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile risky --port 8002\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/risky.log\nStandardError=append:/opt/kalshi-bot/logs/risky.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-risky.service
 
-            # Restart all 3 bots
-            systemctl restart kalshi-bot-conservative
-            systemctl restart kalshi-bot-moderate
-            systemctl restart kalshi-bot-risky
+            systemctl daemon-reload
+            systemctl enable kalshi-bot-conservative kalshi-bot-moderate kalshi-bot-risky
+            systemctl restart kalshi-bot-conservative kalshi-bot-moderate kalshi-bot-risky
 
             echo "Deploy complete: $(date)"
             systemctl is-active kalshi-bot-conservative kalshi-bot-moderate kalshi-bot-risky
