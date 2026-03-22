@@ -174,6 +174,13 @@ BINANCE_SYMBOL = {
     "KXHYPE15M": "HYPEUSDT",
 }
 
+# Per-series momentum threshold overrides (added on top of profile threshold)
+# XRP and ETH historically weaker signals — require higher conviction to enter
+SERIES_THRESHOLD_OVERRIDE = {
+    "KXXRP15M": 67,
+    "KXETH15M": 67,
+}
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -611,7 +618,9 @@ def run_cycle(
             f"[{ticker}] scan: yes_bid={ob.yes_bid} no_bid={ob.no_bid}  tte={tte:.0f}s"
         )
 
-        if ob.yes_bid >= MOMENTUM_THRESHOLD_CENTS:
+        threshold = max(MOMENTUM_THRESHOLD_CENTS, SERIES_THRESHOLD_OVERRIDE.get(series, 0))
+
+        if ob.yes_bid >= threshold:
             ask = ob.yes_ask
             if ask > MOMENTUM_MAX_ENTRY_CENTS:
                 log.debug(f"[{ticker}] YES signal but ask={ask}c > max {MOMENTUM_MAX_ENTRY_CENTS}c — skipping")
@@ -622,7 +631,7 @@ def run_cycle(
             entry_cents = ask
             log.info(f"[{ticker}] MOMENTUM ENTRY: YES @ {entry_cents}c  (yes_bid={ob.yes_bid})")
             break
-        elif ob.no_bid >= MOMENTUM_THRESHOLD_CENTS:
+        elif ob.no_bid >= threshold:
             ask = ob.no_ask
             if ask > MOMENTUM_MAX_ENTRY_CENTS:
                 log.debug(f"[{ticker}] NO signal but ask={ask}c > max {MOMENTUM_MAX_ENTRY_CENTS}c — skipping")
