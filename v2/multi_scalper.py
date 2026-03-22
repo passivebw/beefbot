@@ -107,20 +107,50 @@ PROFILES: dict[str, dict] = {
         "FUNDING_RATE_MAX":         0.0010,
         "FEAR_GREED_EXTREME":       20,
     },
-    "risky": {
-        # More trades, weaker filters, high variance (~51% breakeven)
-        "MOMENTUM_THRESHOLD_CENTS": 60,   # enter on weaker signals
-        "MOMENTUM_MAX_ENTRY_CENTS": 76,   # wider entry range
-        "ENTRY_WAIT_SECONDS":       120,  # 2 min wait
-        "SCAN_WINDOW_SECONDS":      600,  # scan almost until time stop
-        "TAKE_PROFIT_CENTS":        90,   # swing for bigger wins
-        "STOP_LOSS_CENTS":          45,   # wide stop
+    "risky-0m": {
+        # Risky params, enter immediately at contract open
+        "MOMENTUM_THRESHOLD_CENTS": 60,
+        "MOMENTUM_MAX_ENTRY_CENTS": 76,
+        "ENTRY_WAIT_SECONDS":       0,    # enter right at open
+        "SCAN_WINDOW_SECONDS":      600,
+        "TAKE_PROFIT_CENTS":        90,
+        "STOP_LOSS_CENTS":          45,
         "SL_ALERT_CENTS":           52,
-        "TIME_STOP_SECONDS":        90,   # hold longer before forcing exit
-        "PRICE_MOMENTUM_MIN_PCT":   0.02, # near-zero Binance filter
-        "VOLUME_RATIO_MIN":         1.0,  # no volume requirement
+        "TIME_STOP_SECONDS":        90,
+        "PRICE_MOMENTUM_MIN_PCT":   0.02,
+        "VOLUME_RATIO_MIN":         1.0,
         "FUNDING_RATE_MAX":         0.0020,
-        "FEAR_GREED_EXTREME":       10,   # only skip extreme extremes
+        "FEAR_GREED_EXTREME":       10,
+    },
+    "risky-1m": {
+        # Risky params, enter after 1 minute
+        "MOMENTUM_THRESHOLD_CENTS": 60,
+        "MOMENTUM_MAX_ENTRY_CENTS": 76,
+        "ENTRY_WAIT_SECONDS":       60,   # 1 min wait
+        "SCAN_WINDOW_SECONDS":      600,
+        "TAKE_PROFIT_CENTS":        90,
+        "STOP_LOSS_CENTS":          45,
+        "SL_ALERT_CENTS":           52,
+        "TIME_STOP_SECONDS":        90,
+        "PRICE_MOMENTUM_MIN_PCT":   0.02,
+        "VOLUME_RATIO_MIN":         1.0,
+        "FUNDING_RATE_MAX":         0.0020,
+        "FEAR_GREED_EXTREME":       10,
+    },
+    "risky-2m": {
+        # Risky params, enter after 2 minutes
+        "MOMENTUM_THRESHOLD_CENTS": 60,
+        "MOMENTUM_MAX_ENTRY_CENTS": 76,
+        "ENTRY_WAIT_SECONDS":       120,  # 2 min wait
+        "SCAN_WINDOW_SECONDS":      600,
+        "TAKE_PROFIT_CENTS":        90,
+        "STOP_LOSS_CENTS":          45,
+        "SL_ALERT_CENTS":           52,
+        "TIME_STOP_SECONDS":        90,
+        "PRICE_MOMENTUM_MIN_PCT":   0.02,
+        "VOLUME_RATIO_MIN":         1.0,
+        "FUNDING_RATE_MAX":         0.0020,
+        "FEAR_GREED_EXTREME":       10,
     },
 }
 
