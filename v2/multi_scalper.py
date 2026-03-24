@@ -91,6 +91,7 @@ PROFILES: dict[str, dict] = {
         "VOLUME_RATIO_MIN":         1.5,  # high volume conviction
         "FUNDING_RATE_MAX":         0.0008,
         "FEAR_GREED_EXTREME":       25,
+        "MIN_RR_RATIO":             1.0,
     },
     "moderate": {
         # Balanced — current live params (~54% breakeven)
@@ -106,6 +107,7 @@ PROFILES: dict[str, dict] = {
         "VOLUME_RATIO_MIN":         1.2,
         "FUNDING_RATE_MAX":         0.0010,
         "FEAR_GREED_EXTREME":       20,
+        "MIN_RR_RATIO":             1.0,
     },
     "risky-0m": {
         # Risky params, enter immediately at contract open
@@ -121,6 +123,7 @@ PROFILES: dict[str, dict] = {
         "VOLUME_RATIO_MIN":         1.0,
         "FUNDING_RATE_MAX":         0.0020,
         "FEAR_GREED_EXTREME":       10,
+        "MIN_RR_RATIO":             1.0,
     },
     "risky-1m": {
         # Risky params, enter after 1 minute
@@ -136,6 +139,7 @@ PROFILES: dict[str, dict] = {
         "VOLUME_RATIO_MIN":         1.0,
         "FUNDING_RATE_MAX":         0.0020,
         "FEAR_GREED_EXTREME":       10,
+        "MIN_RR_RATIO":             1.0,
     },
     "risky-2m": {
         # Risky params, enter after 2 minutes
@@ -151,6 +155,39 @@ PROFILES: dict[str, dict] = {
         "VOLUME_RATIO_MIN":         1.0,
         "FUNDING_RATE_MAX":         0.0020,
         "FEAR_GREED_EXTREME":       10,
+        "MIN_RR_RATIO":             1.0,
+    },
+    "conservative-69": {
+        # Conservative params but tighter max entry (69c vs 71c) — tests entry cap impact
+        "MOMENTUM_THRESHOLD_CENTS": 68,
+        "MOMENTUM_MAX_ENTRY_CENTS": 69,   # tighter cap — only enter at very low prices
+        "ENTRY_WAIT_SECONDS":       240,
+        "SCAN_WINDOW_SECONDS":      360,
+        "TAKE_PROFIT_CENTS":        88,
+        "STOP_LOSS_CENTS":          53,
+        "SL_ALERT_CENTS":           57,
+        "TIME_STOP_SECONDS":        120,
+        "PRICE_MOMENTUM_MIN_PCT":   0.10,
+        "VOLUME_RATIO_MIN":         1.5,
+        "FUNDING_RATE_MAX":         0.0008,
+        "FEAR_GREED_EXTREME":       25,
+        "MIN_RR_RATIO":             1.0,
+    },
+    "moderate-rr12": {
+        # Moderate params but requires 1.2:1 R/R minimum — tests stricter R/R filter
+        "MOMENTUM_THRESHOLD_CENTS": 65,
+        "MOMENTUM_MAX_ENTRY_CENTS": 72,
+        "ENTRY_WAIT_SECONDS":       180,
+        "SCAN_WINDOW_SECONDS":      480,
+        "TAKE_PROFIT_CENTS":        85,
+        "STOP_LOSS_CENTS":          50,
+        "SL_ALERT_CENTS":           55,
+        "TIME_STOP_SECONDS":        120,
+        "PRICE_MOMENTUM_MIN_PCT":   0.05,
+        "VOLUME_RATIO_MIN":         1.2,
+        "FUNDING_RATE_MAX":         0.0010,
+        "FEAR_GREED_EXTREME":       20,
+        "MIN_RR_RATIO":             1.2,  # only enter if win >= 1.2x the potential loss
     },
 }
 
@@ -162,6 +199,7 @@ PRICE_MOMENTUM_MIN_PCT   = 0.05  # require at least 0.05% price move in signal d
 VOLUME_RATIO_MIN         = 1.2   # last candle volume must be 1.2x the recent average
 FUNDING_RATE_MAX         = 0.0010  # skip if funding rate strongly opposes direction (0.10%)
 FEAR_GREED_EXTREME       = 20    # skip if F&G < 20 (extreme fear) on YES, or > 80 on NO
+MIN_RR_RATIO             = 1.0   # minimum reward:risk ratio required to enter
 
 # Binance symbol mapping
 BINANCE_SYMBOL = {
@@ -625,8 +663,8 @@ def run_cycle(
             if ask > MOMENTUM_MAX_ENTRY_CENTS:
                 log.debug(f"[{ticker}] YES signal but ask={ask}c > max {MOMENTUM_MAX_ENTRY_CENTS}c — skipping")
                 continue
-            if (TAKE_PROFIT_CENTS - ask) < (ask - STOP_LOSS_CENTS):
-                log.debug(f"[{ticker}] YES signal but R/R unfavorable at ask={ask}c (win={TAKE_PROFIT_CENTS-ask}c < loss={ask-STOP_LOSS_CENTS}c) — skipping")
+            if (TAKE_PROFIT_CENTS - ask) < MIN_RR_RATIO * (ask - STOP_LOSS_CENTS):
+                log.debug(f"[{ticker}] YES signal but R/R unfavorable at ask={ask}c (win={TAKE_PROFIT_CENTS-ask}c < {MIN_RR_RATIO}x loss={ask-STOP_LOSS_CENTS}c) — skipping")
                 continue
             if not ext.confirm_entry(series, "yes", log):
                 continue
@@ -639,8 +677,8 @@ def run_cycle(
             if ask > MOMENTUM_MAX_ENTRY_CENTS:
                 log.debug(f"[{ticker}] NO signal but ask={ask}c > max {MOMENTUM_MAX_ENTRY_CENTS}c — skipping")
                 continue
-            if (TAKE_PROFIT_CENTS - ask) < (ask - STOP_LOSS_CENTS):
-                log.debug(f"[{ticker}] NO signal but R/R unfavorable at ask={ask}c (win={TAKE_PROFIT_CENTS-ask}c < loss={ask-STOP_LOSS_CENTS}c) — skipping")
+            if (TAKE_PROFIT_CENTS - ask) < MIN_RR_RATIO * (ask - STOP_LOSS_CENTS):
+                log.debug(f"[{ticker}] NO signal but R/R unfavorable at ask={ask}c (win={TAKE_PROFIT_CENTS-ask}c < {MIN_RR_RATIO}x loss={ask-STOP_LOSS_CENTS}c) — skipping")
                 continue
             if not ext.confirm_entry(series, "no", log):
                 continue
@@ -937,7 +975,7 @@ def main() -> None:
     global MOMENTUM_THRESHOLD_CENTS, MOMENTUM_MAX_ENTRY_CENTS, ENTRY_WAIT_SECONDS
     global SCAN_WINDOW_SECONDS, TAKE_PROFIT_CENTS, STOP_LOSS_CENTS, SL_ALERT_CENTS
     global TIME_STOP_SECONDS, PRICE_MOMENTUM_MIN_PCT, VOLUME_RATIO_MIN
-    global FUNDING_RATE_MAX, FEAR_GREED_EXTREME
+    global FUNDING_RATE_MAX, FEAR_GREED_EXTREME, MIN_RR_RATIO
 
     parser = argparse.ArgumentParser(description="Kalshi Multi-Market Paper Scalper")
     parser.add_argument(
@@ -966,10 +1004,15 @@ def main() -> None:
     VOLUME_RATIO_MIN         = profile_cfg["VOLUME_RATIO_MIN"]
     FUNDING_RATE_MAX         = profile_cfg["FUNDING_RATE_MAX"]
     FEAR_GREED_EXTREME       = profile_cfg["FEAR_GREED_EXTREME"]
+    MIN_RR_RATIO             = profile_cfg["MIN_RR_RATIO"]
 
     # Default port per profile so all 3 can run simultaneously
-    default_ports = {"conservative": 8001, "moderate": 8000, "risky": 8002}
-    port = args.port if args.port is not None else default_ports[ACTIVE_PROFILE]
+    default_ports = {
+        "conservative": 8001, "moderate": 8000,
+        "risky-0m": 8002, "risky-1m": 8003, "risky-2m": 8004,
+        "conservative-69": 8005, "moderate-rr12": 8006,
+    }
+    port = args.port if args.port is not None else default_ports.get(ACTIVE_PROFILE, 8000)
 
     _load_dotenv(".env")
 

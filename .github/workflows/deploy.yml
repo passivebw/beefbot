@@ -40,9 +40,15 @@ jobs:
             # risky-2m - port 8004
             printf '[Unit]\nDescription=Kalshi Bot (risky-2m)\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile risky-2m --port 8004\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/risky-2m.log\nStandardError=append:/opt/kalshi-bot/logs/risky-2m.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-risky-2m.service
 
+            # conservative-69 - port 8005
+            printf '[Unit]\nDescription=Kalshi Bot (conservative-69)\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile conservative-69 --port 8005\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/conservative-69.log\nStandardError=append:/opt/kalshi-bot/logs/conservative-69.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-conservative-69.service
+
+            # moderate-rr12 - port 8006
+            printf '[Unit]\nDescription=Kalshi Bot (moderate-rr12)\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile moderate-rr12 --port 8006\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/moderate-rr12.log\nStandardError=append:/opt/kalshi-bot/logs/moderate-rr12.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-moderate-rr12.service
+
             systemctl daemon-reload
-            systemctl enable kalshi-bot-conservative kalshi-bot-moderate kalshi-bot-risky-0m kalshi-bot-risky-1m kalshi-bot-risky-2m
-            systemctl restart kalshi-bot-conservative kalshi-bot-moderate kalshi-bot-risky-0m kalshi-bot-risky-1m kalshi-bot-risky-2m
+            systemctl enable kalshi-bot-conservative kalshi-bot-moderate kalshi-bot-risky-0m kalshi-bot-risky-1m kalshi-bot-risky-2m kalshi-bot-conservative-69 kalshi-bot-moderate-rr12
+            systemctl restart kalshi-bot-conservative kalshi-bot-moderate kalshi-bot-risky-0m kalshi-bot-risky-1m kalshi-bot-risky-2m kalshi-bot-conservative-69 kalshi-bot-moderate-rr12
 
             echo "Deploy complete: $(date)"
-            systemctl is-active kalshi-bot-conservative kalshi-bot-moderate kalshi-bot-risky-0m kalshi-bot-risky-1m kalshi-bot-risky-2m
+            systemctl is-active kalshi-bot-conservative kalshi-bot-moderate kalshi-bot-risky-0m kalshi-bot-risky-1m kalshi-bot-risky-2m kalshi-bot-conservative-69 kalshi-bot-moderate-rr12
