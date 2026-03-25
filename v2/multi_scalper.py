@@ -78,89 +78,8 @@ SL_POLL_INTERVAL     = 1   # fast polling when near stop loss
 
 PROFILES: dict[str, dict] = {
     "conservative": {
-        # Fewer trades, higher-quality signals, best R/R (~49% breakeven)
-        "MOMENTUM_THRESHOLD_CENTS": 68,   # only very strong Kalshi signal
-        "MOMENTUM_MAX_ENTRY_CENTS": 71,   # tight cap → avg entry ~70c
-        "ENTRY_WAIT_SECONDS":       240,  # 4 min for direction to establish
-        "SCAN_WINDOW_SECONDS":      360,  # stop scanning at minute 10
-        "TAKE_PROFIT_CENTS":        88,   # +18c win from avg entry
-        "STOP_LOSS_CENTS":          53,   # -17c loss → breakeven ~49%
-        "SL_ALERT_CENTS":           57,
-        "TIME_STOP_SECONDS":        120,
-        "PRICE_MOMENTUM_MIN_PCT":   0.10, # strong Binance confirmation
-        "VOLUME_RATIO_MIN":         1.5,  # high volume conviction
-        "FUNDING_RATE_MAX":         0.0008,
-        "FEAR_GREED_EXTREME":       25,
-        "MIN_RR_RATIO":             1.0,
-    },
-    "moderate": {
-        # Balanced — current live params (~54% breakeven)
-        "MOMENTUM_THRESHOLD_CENTS": 65,
-        "MOMENTUM_MAX_ENTRY_CENTS": 72,
-        "ENTRY_WAIT_SECONDS":       180,
-        "SCAN_WINDOW_SECONDS":      480,
-        "TAKE_PROFIT_CENTS":        85,
-        "STOP_LOSS_CENTS":          50,
-        "SL_ALERT_CENTS":           55,
-        "TIME_STOP_SECONDS":        120,
-        "PRICE_MOMENTUM_MIN_PCT":   0.05,
-        "VOLUME_RATIO_MIN":         1.2,
-        "FUNDING_RATE_MAX":         0.0010,
-        "FEAR_GREED_EXTREME":       20,
-        "MIN_RR_RATIO":             1.0,
-    },
-    "risky-0m": {
-        # Risky params, enter immediately at contract open
-        "MOMENTUM_THRESHOLD_CENTS": 62,
-        "MOMENTUM_MAX_ENTRY_CENTS": 76,
-        "ENTRY_WAIT_SECONDS":       0,    # enter right at open
-        "SCAN_WINDOW_SECONDS":      600,
-        "TAKE_PROFIT_CENTS":        90,
-        "STOP_LOSS_CENTS":          45,
-        "SL_ALERT_CENTS":           52,
-        "TIME_STOP_SECONDS":        90,
-        "PRICE_MOMENTUM_MIN_PCT":   0.02,
-        "VOLUME_RATIO_MIN":         1.0,
-        "FUNDING_RATE_MAX":         0.0020,
-        "FEAR_GREED_EXTREME":       10,
-        "MIN_RR_RATIO":             1.0,
-    },
-    "risky-1m": {
-        # Risky params, enter after 1 minute
-        "MOMENTUM_THRESHOLD_CENTS": 62,
-        "MOMENTUM_MAX_ENTRY_CENTS": 76,
-        "ENTRY_WAIT_SECONDS":       60,   # 1 min wait
-        "SCAN_WINDOW_SECONDS":      600,
-        "TAKE_PROFIT_CENTS":        90,
-        "STOP_LOSS_CENTS":          45,
-        "SL_ALERT_CENTS":           52,
-        "TIME_STOP_SECONDS":        90,
-        "PRICE_MOMENTUM_MIN_PCT":   0.02,
-        "VOLUME_RATIO_MIN":         1.0,
-        "FUNDING_RATE_MAX":         0.0020,
-        "FEAR_GREED_EXTREME":       10,
-        "MIN_RR_RATIO":             1.0,
-    },
-    "risky-2m": {
-        # Risky params, enter after 2 minutes
-        "MOMENTUM_THRESHOLD_CENTS": 62,
-        "MOMENTUM_MAX_ENTRY_CENTS": 76,
-        "ENTRY_WAIT_SECONDS":       120,  # 2 min wait
-        "SCAN_WINDOW_SECONDS":      600,
-        "TAKE_PROFIT_CENTS":        90,
-        "STOP_LOSS_CENTS":          45,
-        "SL_ALERT_CENTS":           52,
-        "TIME_STOP_SECONDS":        90,
-        "PRICE_MOMENTUM_MIN_PCT":   0.02,
-        "VOLUME_RATIO_MIN":         1.0,
-        "FUNDING_RATE_MAX":         0.0020,
-        "FEAR_GREED_EXTREME":       10,
-        "MIN_RR_RATIO":             1.0,
-    },
-    "conservative-69": {
-        # Conservative params but tighter max entry (69c vs 71c) — tests entry cap impact
         "MOMENTUM_THRESHOLD_CENTS": 68,
-        "MOMENTUM_MAX_ENTRY_CENTS": 69,   # tighter cap — only enter at very low prices
+        "MOMENTUM_MAX_ENTRY_CENTS": 71,
         "ENTRY_WAIT_SECONDS":       240,
         "SCAN_WINDOW_SECONDS":      360,
         "TAKE_PROFIT_CENTS":        88,
@@ -172,9 +91,10 @@ PROFILES: dict[str, dict] = {
         "FUNDING_RATE_MAX":         0.0008,
         "FEAR_GREED_EXTREME":       25,
         "MIN_RR_RATIO":             1.0,
+        "DAILY_LOSS_LIMIT_CENTS":  -300,
+        "TRAILING_STOP_ACTIVATE":    8,
     },
-    "moderate-rr12": {
-        # Moderate params but requires 1.2:1 R/R minimum — tests stricter R/R filter
+    "moderate": {
         "MOMENTUM_THRESHOLD_CENTS": 65,
         "MOMENTUM_MAX_ENTRY_CENTS": 72,
         "ENTRY_WAIT_SECONDS":       180,
@@ -187,12 +107,177 @@ PROFILES: dict[str, dict] = {
         "VOLUME_RATIO_MIN":         1.2,
         "FUNDING_RATE_MAX":         0.0010,
         "FEAR_GREED_EXTREME":       20,
-        "MIN_RR_RATIO":             1.1,  # only enter if win >= 1.1x the potential loss
+        "MIN_RR_RATIO":             1.0,
+        "DAILY_LOSS_LIMIT_CENTS":  -500,
+        "TRAILING_STOP_ACTIVATE":    8,
+    },
+    "risky-0m": {
+        "MOMENTUM_THRESHOLD_CENTS": 62,
+        "MOMENTUM_MAX_ENTRY_CENTS": 76,
+        "ENTRY_WAIT_SECONDS":        0,
+        "SCAN_WINDOW_SECONDS":      600,
+        "TAKE_PROFIT_CENTS":        90,
+        "STOP_LOSS_CENTS":          45,
+        "SL_ALERT_CENTS":           52,
+        "TIME_STOP_SECONDS":        90,
+        "PRICE_MOMENTUM_MIN_PCT":   0.02,
+        "VOLUME_RATIO_MIN":         1.0,
+        "FUNDING_RATE_MAX":         0.0020,
+        "FEAR_GREED_EXTREME":       10,
+        "MIN_RR_RATIO":             1.0,
+        "DAILY_LOSS_LIMIT_CENTS":  -800,
+        "TRAILING_STOP_ACTIVATE":   10,
+    },
+    "risky-1m": {
+        "MOMENTUM_THRESHOLD_CENTS": 62,
+        "MOMENTUM_MAX_ENTRY_CENTS": 76,
+        "ENTRY_WAIT_SECONDS":        60,
+        "SCAN_WINDOW_SECONDS":      600,
+        "TAKE_PROFIT_CENTS":        90,
+        "STOP_LOSS_CENTS":          45,
+        "SL_ALERT_CENTS":           52,
+        "TIME_STOP_SECONDS":        90,
+        "PRICE_MOMENTUM_MIN_PCT":   0.02,
+        "VOLUME_RATIO_MIN":         1.0,
+        "FUNDING_RATE_MAX":         0.0020,
+        "FEAR_GREED_EXTREME":       10,
+        "MIN_RR_RATIO":             1.0,
+        "DAILY_LOSS_LIMIT_CENTS":  -800,
+        "TRAILING_STOP_ACTIVATE":   10,
+    },
+    "risky-2m": {
+        "MOMENTUM_THRESHOLD_CENTS": 62,
+        "MOMENTUM_MAX_ENTRY_CENTS": 76,
+        "ENTRY_WAIT_SECONDS":       120,
+        "SCAN_WINDOW_SECONDS":      600,
+        "TAKE_PROFIT_CENTS":        90,
+        "STOP_LOSS_CENTS":          45,
+        "SL_ALERT_CENTS":           52,
+        "TIME_STOP_SECONDS":        90,
+        "PRICE_MOMENTUM_MIN_PCT":   0.02,
+        "VOLUME_RATIO_MIN":         1.0,
+        "FUNDING_RATE_MAX":         0.0020,
+        "FEAR_GREED_EXTREME":       10,
+        "MIN_RR_RATIO":             1.0,
+        "DAILY_LOSS_LIMIT_CENTS":  -800,
+        "TRAILING_STOP_ACTIVATE":   10,
+    },
+    "conservative-69": {
+        "MOMENTUM_THRESHOLD_CENTS": 68,
+        "MOMENTUM_MAX_ENTRY_CENTS": 69,
+        "ENTRY_WAIT_SECONDS":       240,
+        "SCAN_WINDOW_SECONDS":      360,
+        "TAKE_PROFIT_CENTS":        88,
+        "STOP_LOSS_CENTS":          53,
+        "SL_ALERT_CENTS":           57,
+        "TIME_STOP_SECONDS":        120,
+        "PRICE_MOMENTUM_MIN_PCT":   0.10,
+        "VOLUME_RATIO_MIN":         1.5,
+        "FUNDING_RATE_MAX":         0.0008,
+        "FEAR_GREED_EXTREME":       25,
+        "MIN_RR_RATIO":             1.0,
+        "DAILY_LOSS_LIMIT_CENTS":  -300,
+        "TRAILING_STOP_ACTIVATE":    8,
+    },
+    "moderate-rr12": {
+        "MOMENTUM_THRESHOLD_CENTS": 65,
+        "MOMENTUM_MAX_ENTRY_CENTS": 72,
+        "ENTRY_WAIT_SECONDS":       180,
+        "SCAN_WINDOW_SECONDS":      480,
+        "TAKE_PROFIT_CENTS":        85,
+        "STOP_LOSS_CENTS":          50,
+        "SL_ALERT_CENTS":           55,
+        "TIME_STOP_SECONDS":        120,
+        "PRICE_MOMENTUM_MIN_PCT":   0.05,
+        "VOLUME_RATIO_MIN":         1.2,
+        "FUNDING_RATE_MAX":         0.0010,
+        "FEAR_GREED_EXTREME":       20,
+        "MIN_RR_RATIO":             1.1,
+        "DAILY_LOSS_LIMIT_CENTS":  -300,
+        "TRAILING_STOP_ACTIVATE":    8,
     },
 }
 
 # Active profile name — set by --profile arg in main()
 ACTIVE_PROFILE = "moderate"
+
+# ---------------------------------------------------------------------------
+# Circuit breaker — daily loss limit (shared across all worker threads)
+# ---------------------------------------------------------------------------
+
+_daily_pnl_lock  = threading.Lock()
+_daily_pnl_cents = 0          # running P&L for today (UTC)
+_daily_pnl_date  = ""         # date string "YYYY-MM-DD" — reset when day rolls over
+DAILY_LOSS_LIMIT_CENTS = -500  # overridden by profile at startup
+
+def _check_and_reset_daily() -> None:
+    """Reset daily P&L counter when UTC date changes."""
+    global _daily_pnl_cents, _daily_pnl_date
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    with _daily_pnl_lock:
+        if _daily_pnl_date != today:
+            _daily_pnl_cents = 0
+            _daily_pnl_date  = today
+
+def circuit_breaker_open() -> bool:
+    """Return True if daily loss limit has been hit — no new trades."""
+    _check_and_reset_daily()
+    with _daily_pnl_lock:
+        return _daily_pnl_cents <= DAILY_LOSS_LIMIT_CENTS
+
+def record_daily_pnl(pnl_cents: int) -> None:
+    global _daily_pnl_cents
+    _check_and_reset_daily()
+    with _daily_pnl_lock:
+        _daily_pnl_cents += pnl_cents
+
+# ---------------------------------------------------------------------------
+# Telegram alerts (optional — requires TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID)
+# ---------------------------------------------------------------------------
+
+def _send_telegram(msg: str) -> None:
+    token   = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+    if not token or not chat_id:
+        return
+    try:
+        httpx.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": msg, "parse_mode": "HTML"},
+            timeout=5.0,
+        )
+    except Exception:
+        pass  # never let Telegram errors crash the bot
+
+def tg_trade_entry(profile: str, series: str, side: str, entry: int) -> None:
+    _send_telegram(
+        f"📥 <b>ENTRY</b> [{profile}] {series}\n"
+        f"Side: {side.upper()}  @{entry}c"
+    )
+
+def tg_trade_exit(profile: str, series: str, side: str, entry: int,
+                  exit_c: int, reason: str, pnl: int) -> None:
+    icon = "✅" if pnl > 0 else "❌" if pnl < 0 else "➖"
+    _send_telegram(
+        f"{icon} <b>EXIT</b> [{profile}] {series}\n"
+        f"Side: {side.upper()}  Entry:{entry}c → Exit:{exit_c}c\n"
+        f"Reason: {reason}  PnL: {pnl:+}c (${pnl/100:+.2f})"
+    )
+
+def tg_circuit_breaker(profile: str, daily_pnl: int) -> None:
+    _send_telegram(
+        f"🚨 <b>CIRCUIT BREAKER</b> [{profile}]\n"
+        f"Daily loss limit hit: {daily_pnl:+}c (${daily_pnl/100:+.2f})\n"
+        f"No new trades until midnight UTC."
+    )
+
+def tg_daily_summary(profile: str, trades: int, wins: int, pnl: int) -> None:
+    wp = wins / trades * 100 if trades else 0
+    icon = "📈" if pnl > 0 else "📉"
+    _send_telegram(
+        f"{icon} <b>24h Summary</b> [{profile}]\n"
+        f"Trades: {trades}  Win%: {wp:.1f}%  PnL: {pnl:+}c (${pnl/100:+.2f})"
+    )
 
 # External confirmation filters
 PRICE_MOMENTUM_MIN_PCT   = 0.05  # require at least 0.05% price move in signal direction
@@ -200,6 +285,8 @@ VOLUME_RATIO_MIN         = 1.2   # last candle volume must be 1.2x the recent av
 FUNDING_RATE_MAX         = 0.0010  # skip if funding rate strongly opposes direction (0.10%)
 FEAR_GREED_EXTREME       = 20    # skip if F&G < 20 (extreme fear) on YES, or > 80 on NO
 MIN_RR_RATIO             = 1.0   # minimum reward:risk ratio required to enter
+TRAILING_STOP_ACTIVATE   = 8    # cents of profit before moving SL to breakeven
+DAILY_LOSS_LIMIT_CENTS   = -500  # overridden per profile at startup
 
 # Binance symbol mapping
 BINANCE_SYMBOL = {
@@ -623,6 +710,11 @@ def run_cycle(
 ) -> None:
     """Momentum-follow cycle: wait 3 min, enter on strong directional signal."""
 
+    # Circuit breaker — skip new trades if daily loss limit hit
+    if circuit_breaker_open():
+        log.info(f"[{ticker}] Circuit breaker active — skipping (daily loss limit hit)")
+        return
+
     tte = expiry_ts - time.time()
     min_required = ENTRY_WAIT_SECONDS + 60 + TIME_STOP_SECONDS + 30
     if tte < min_required:
@@ -691,6 +783,7 @@ def run_cycle(
         return
 
     # ---- Phase 3: manage position ----
+    tg_trade_entry(profile, series, filled_side, entry_cents)
     log.info(
         f"[{ticker}] Position open: LONG {filled_side.upper()} @ {entry_cents}c  "
         f"TP={TAKE_PROFIT_CENTS}c  SL={STOP_LOSS_CENTS}c(mid)"
@@ -698,6 +791,8 @@ def run_cycle(
 
     exit_reason: Optional[str] = None
     exit_cents:  Optional[int] = None
+    dynamic_sl   = STOP_LOSS_CENTS   # trailing stop — starts at fixed SL
+    trailing_active = False
 
     while True:
         try:
@@ -711,8 +806,18 @@ def run_cycle(
         mid = current_mid(ob, filled_side)
         bid = ob.yes_bid if filled_side == "yes" else ob.no_bid
 
+        # Trailing stop: once price moves TRAILING_STOP_ACTIVATE cents in our
+        # favour, move SL up to entry (breakeven) so a winner can't become a loser
+        if not trailing_active and mid >= entry_cents + TRAILING_STOP_ACTIVATE:
+            dynamic_sl      = entry_cents
+            trailing_active = True
+            log.info(
+                f"[{ticker}] TRAILING STOP activated — SL moved to breakeven {dynamic_sl}c"
+            )
+
         log.debug(
-            f"[{ticker}] pos: side={filled_side} mid={mid}c bid={bid}c  tte={tte:.0f}s"
+            f"[{ticker}] pos: side={filled_side} mid={mid}c bid={bid}c  "
+            f"sl={dynamic_sl}c  tte={tte:.0f}s"
         )
 
         if tte <= TIME_STOP_SECONDS:
@@ -727,10 +832,10 @@ def run_cycle(
             log.info(f"[{ticker}] TAKE PROFIT  exit@{exit_cents}c")
             break
 
-        if mid <= STOP_LOSS_CENTS:
-            exit_reason = "stop_loss"
-            exit_cents  = STOP_LOSS_CENTS  # lock to SL price, not slipped price
-            log.info(f"[{ticker}] STOP LOSS  mid={mid}c  exit@{exit_cents}c")
+        if mid <= dynamic_sl:
+            exit_reason = "stop_loss" if not trailing_active else "trailing_stop"
+            exit_cents  = dynamic_sl
+            log.info(f"[{ticker}] {exit_reason.upper()}  mid={mid}c  exit@{exit_cents}c")
             break
 
         # Fast polling when near SL to catch it quickly
@@ -752,6 +857,15 @@ def run_cycle(
         conn, ticker, series, profile, "momentum", filled_side,
         entry_cents, exit_cents, exit_reason, pnl_cents * CONTRACTS,
     )
+
+    # Update circuit breaker counter and send Telegram alert
+    record_daily_pnl(pnl_cents * CONTRACTS)
+    tg_trade_exit(profile, series, filled_side, entry_cents, exit_cents, exit_reason, pnl_cents)
+    with _daily_pnl_lock:
+        daily_total = _daily_pnl_cents
+    if circuit_breaker_open():
+        tg_circuit_breaker(profile, daily_total)
+        log.warning(f"CIRCUIT BREAKER: daily loss limit hit ({daily_total}c) — pausing new trades")
 
     log.info(
         f"[{ticker}] CLOSED  side={filled_side}  entry={entry_cents}c  "
@@ -852,8 +966,11 @@ def stats_reporter(conn: sqlite3.Connection, stop_event: threading.Event) -> Non
                     f"trades={trades:>3}  win%={win_rate:.0%}  "
                     f"PnL={pnl or 0:>+5}c  ${pnl_usd:>+6.2f}"
                 )
+            total_wins  = sum(wins for _, _, _, _, wins in rows)
+            total_trades_all = sum(trades for _, _, trades, _, _ in rows)
             log.info(f"  {'TOTAL':>12}                    PnL={total_pnl:>+5}c  ${total_pnl/100:.2f}")
             log.info("─" * 50)
+            tg_daily_summary(ACTIVE_PROFILE, total_trades_all, total_wins, total_pnl)
         except Exception as e:
             log.error(f"Stats error: {e}")
 
@@ -876,6 +993,62 @@ def _check_api_key() -> bool:
 @_report_app.route("/health")
 def health():
     return jsonify({"status": "ok", "uptime_s": int(time.time() - _bot_start_time)})
+
+
+@_report_app.route("/heatmap")
+def heatmap():
+    """Win rate and P&L broken down by hour of day (UTC), across all time."""
+    if not _check_api_key():
+        return jsonify({"error": "unauthorized"}), 401
+    if _report_conn is None:
+        return jsonify({"error": "db not ready"}), 503
+
+    rows = _report_conn.execute(
+        """SELECT
+               CAST(strftime('%H', created_at) AS INTEGER) as hour,
+               COUNT(*) as trades,
+               SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins,
+               SUM(pnl_cents) as total_pnl
+           FROM bracket_trade_log
+           GROUP BY hour
+           ORDER BY hour"""
+    ).fetchall()
+
+    by_market = _report_conn.execute(
+        """SELECT
+               series,
+               CAST(strftime('%H', created_at) AS INTEGER) as hour,
+               COUNT(*) as trades,
+               SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins,
+               SUM(pnl_cents) as total_pnl
+           FROM bracket_trade_log
+           GROUP BY series, hour
+           ORDER BY series, hour"""
+    ).fetchall()
+
+    return jsonify({
+        "by_hour": [
+            {
+                "hour": r[0],
+                "trades": r[1],
+                "wins": r[2],
+                "win_pct": round(r[2] / r[1] * 100, 1) if r[1] else 0,
+                "pnl_cents": r[3] or 0,
+            }
+            for r in rows
+        ],
+        "by_market_hour": [
+            {
+                "series": r[0],
+                "hour": r[1],
+                "trades": r[2],
+                "wins": r[3],
+                "win_pct": round(r[3] / r[2] * 100, 1) if r[2] else 0,
+                "pnl_cents": r[4] or 0,
+            }
+            for r in by_market
+        ],
+    })
 
 
 @_report_app.route("/report")
@@ -976,6 +1149,7 @@ def main() -> None:
     global SCAN_WINDOW_SECONDS, TAKE_PROFIT_CENTS, STOP_LOSS_CENTS, SL_ALERT_CENTS
     global TIME_STOP_SECONDS, PRICE_MOMENTUM_MIN_PCT, VOLUME_RATIO_MIN
     global FUNDING_RATE_MAX, FEAR_GREED_EXTREME, MIN_RR_RATIO
+    global TRAILING_STOP_ACTIVATE, DAILY_LOSS_LIMIT_CENTS
 
     parser = argparse.ArgumentParser(description="Kalshi Multi-Market Paper Scalper")
     parser.add_argument(
@@ -1005,6 +1179,8 @@ def main() -> None:
     FUNDING_RATE_MAX         = profile_cfg["FUNDING_RATE_MAX"]
     FEAR_GREED_EXTREME       = profile_cfg["FEAR_GREED_EXTREME"]
     MIN_RR_RATIO             = profile_cfg["MIN_RR_RATIO"]
+    TRAILING_STOP_ACTIVATE   = profile_cfg["TRAILING_STOP_ACTIVATE"]
+    DAILY_LOSS_LIMIT_CENTS   = profile_cfg["DAILY_LOSS_LIMIT_CENTS"]
 
     # Default port per profile so all 3 can run simultaneously
     default_ports = {
