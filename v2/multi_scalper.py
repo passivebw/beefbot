@@ -288,8 +288,9 @@ MIN_RR_RATIO             = 1.0   # minimum reward:risk ratio required to enter
 TRAILING_STOP_ACTIVATE   = 8    # cents of profit before moving SL to breakeven
 DAILY_LOSS_LIMIT_CENTS   = -500  # overridden per profile at startup
 
-# Live trading — set LIVE_MODE=true in .env to enable real orders
-LIVE_MODE            = False   # overridden at startup from env
+# Live trading — use --live flag to enable real orders
+LIVE_MODE            = False   # overridden at startup from --live flag
+LIVE_SERIES: set     = set()   # empty = all series live; populated from --live-series
 LIMIT_ORDER_TIMEOUT  = 45      # seconds to wait for limit fill before fallback
 
 # Binance symbol mapping
@@ -854,7 +855,10 @@ def run_cycle(
     # ---- Entry execution: limit order with market fallback ----
     limit_price = signal_ask - 1  # post 1c inside the spread
 
-    if not LIVE_MODE:
+    # Series is live if LIVE_MODE is on AND (no series filter OR this series is in the filter)
+    series_is_live = LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)
+
+    if not series_is_live:
         # Paper mode: simulate fill at limit price (optimistic but realistic)
         entry_cents = limit_price
         log.info(
@@ -1002,7 +1006,7 @@ def run_cycle(
             break
 
     # ---- Live exit: place market sell order ----
-    if LIVE_MODE:
+    if series_is_live:
         try:
             sell_id = client.place_order(ticker, filled_side, "market", None, action="sell")
             if sell_id:
@@ -1318,7 +1322,7 @@ def main() -> None:
     global SCAN_WINDOW_SECONDS, TAKE_PROFIT_CENTS, STOP_LOSS_CENTS, SL_ALERT_CENTS
     global TIME_STOP_SECONDS, PRICE_MOMENTUM_MIN_PCT, VOLUME_RATIO_MIN
     global FUNDING_RATE_MAX, FEAR_GREED_EXTREME, MIN_RR_RATIO
-    global TRAILING_STOP_ACTIVATE, DAILY_LOSS_LIMIT_CENTS, LIVE_MODE
+    global TRAILING_STOP_ACTIVATE, DAILY_LOSS_LIMIT_CENTS, LIVE_MODE, LIVE_SERIES
 
     parser = argparse.ArgumentParser(description="Kalshi Multi-Market Paper Scalper")
     parser.add_argument(
@@ -1328,6 +1332,15 @@ def main() -> None:
     parser.add_argument(
         "--port", type=int, default=None,
         help="HTTP report server port (default: 8001/8000/8002 per profile)",
+    )
+    parser.add_argument(
+        "--live", action="store_true", default=False,
+        help="Enable live trading (real orders). Paper mode if omitted.",
+    )
+    parser.add_argument(
+        "--live-series", type=str, default="",
+        help="Comma-separated list of series to trade live (e.g. KXBNB15M,KXDOGE15M). "
+             "All series are live if --live is set and this is omitted.",
     )
     args = parser.parse_args()
 
@@ -1350,7 +1363,9 @@ def main() -> None:
     MIN_RR_RATIO             = profile_cfg["MIN_RR_RATIO"]
     TRAILING_STOP_ACTIVATE   = profile_cfg["TRAILING_STOP_ACTIVATE"]
     DAILY_LOSS_LIMIT_CENTS   = profile_cfg["DAILY_LOSS_LIMIT_CENTS"]
-    LIVE_MODE                = os.environ.get("LIVE_MODE", "false").lower() == "true"
+    LIVE_MODE                = args.live or os.environ.get("LIVE_MODE", "false").lower() == "true"
+    raw_live_series          = args.live_series or os.environ.get("LIVE_SERIES", "")
+    LIVE_SERIES              = {s.strip() for s in raw_live_series.split(",") if s.strip()}
 
     # Default port per profile so all 3 can run simultaneously
     default_ports = {
@@ -1368,9 +1383,16 @@ def main() -> None:
     _root_log = setup_logging()
 
     log = get_log("MAIN")
-    mode_str = "🔴 LIVE TRADING" if LIVE_MODE else "📄 PAPER MODE"
+    mode_str = "LIVE TRADING" if LIVE_MODE else "PAPER MODE"
     log.info("=" * 60)
     log.info(f"Multi-Market Scalper  [{mode_str}]  profile={ACTIVE_PROFILE.upper()}")
+    if LIVE_MODE and LIVE_SERIES:
+        live_mkts  = sorted(LIVE_SERIES)
+        paper_mkts = [s for s in SERIES if s not in LIVE_SERIES]
+        log.info(f"LIVE markets : {', '.join(live_mkts)}")
+        log.info(f"PAPER markets: {', '.join(paper_mkts)}")
+    elif LIVE_MODE:
+        log.info(f"LIVE markets : ALL")
     log.info(f"Markets  : {', '.join(SERIES)}")
     log.info(f"Signal   : bid >= {MOMENTUM_THRESHOLD_CENTS}c after {ENTRY_WAIT_SECONDS}s  max_entry={MOMENTUM_MAX_ENTRY_CENTS}c")
     log.info(f"Exit     : TP={TAKE_PROFIT_CENTS}c  SL={STOP_LOSS_CENTS}c  TimeStop={TIME_STOP_SECONDS}s")
