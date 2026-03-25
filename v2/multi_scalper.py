@@ -288,6 +288,10 @@ MIN_RR_RATIO             = 1.0   # minimum reward:risk ratio required to enter
 TRAILING_STOP_ACTIVATE   = 8    # cents of profit before moving SL to breakeven
 DAILY_LOSS_LIMIT_CENTS   = -500  # overridden per profile at startup
 
+# Live trading — set LIVE_MODE=true in .env to enable real orders
+LIVE_MODE            = False   # overridden at startup from env
+LIMIT_ORDER_TIMEOUT  = 45      # seconds to wait for limit fill before fallback
+
 # Binance symbol mapping
 BINANCE_SYMBOL = {
     "KXBTC15M":  "BTCUSDT",
@@ -517,6 +521,72 @@ class KalshiClient:
             expiry_ts=expiry_ts,
         )
 
+    def get_balance(self) -> int:
+        """Return available balance in cents."""
+        path = "/trade-api/v2/portfolio/balance"
+        r = self._http.get(
+            KALSHI_BASE_URL + "/portfolio/balance",
+            headers=self._auth.headers("GET", path),
+        )
+        r.raise_for_status()
+        return int(r.json().get("balance", 0))
+
+    def place_order(
+        self,
+        ticker: str,
+        side: str,
+        order_type: str,
+        price_cents: Optional[int],
+        action: str = "buy",
+    ) -> Optional[str]:
+        """Place a limit or market order. Returns order_id or None on failure."""
+        path = "/trade-api/v2/orders"
+        body: dict = {
+            "ticker": ticker,
+            "action": action,
+            "side": side,
+            "type": order_type,
+            "count": CONTRACTS,
+        }
+        if order_type == "limit" and price_cents is not None:
+            if side == "yes":
+                body["yes_price"] = price_cents
+            else:
+                body["no_price"] = price_cents
+        r = self._http.post(
+            KALSHI_BASE_URL + "/orders",
+            headers=self._auth.headers("POST", path),
+            json=body,
+        )
+        r.raise_for_status()
+        return r.json().get("order", {}).get("order_id")
+
+    def get_order_status(self, order_id: str) -> tuple[str, int]:
+        """Return (status, filled_price_cents). Status: resting/filled/canceled."""
+        path = f"/trade-api/v2/orders/{order_id}"
+        r = self._http.get(
+            KALSHI_BASE_URL + f"/orders/{order_id}",
+            headers=self._auth.headers("GET", path),
+        )
+        r.raise_for_status()
+        order = r.json().get("order", {})
+        status = order.get("status", "error")
+        # Use yes_price for YES orders, no_price for NO orders
+        filled_price = order.get("yes_price") or order.get("no_price") or 0
+        return status, int(filled_price)
+
+    def cancel_order(self, order_id: str) -> bool:
+        """Cancel a resting order. Returns True if successful."""
+        path = f"/trade-api/v2/orders/{order_id}"
+        try:
+            r = self._http.delete(
+                KALSHI_BASE_URL + f"/orders/{order_id}",
+                headers=self._auth.headers("DELETE", path),
+            )
+            return r.status_code in (200, 204)
+        except Exception:
+            return False
+
     def close(self) -> None:
         self._http.close()
 
@@ -729,6 +799,7 @@ def run_cycle(
     scan_deadline = time.time() + SCAN_WINDOW_SECONDS
     filled_side:  Optional[str] = None
     entry_cents:  Optional[int] = None
+    signal_ask:   int           = 0
 
     while time.time() < scan_deadline:
         time.sleep(ORDER_POLL_INTERVAL)
@@ -756,13 +827,12 @@ def run_cycle(
                 log.debug(f"[{ticker}] YES signal but ask={ask}c > max {MOMENTUM_MAX_ENTRY_CENTS}c — skipping")
                 continue
             if (TAKE_PROFIT_CENTS - ask) < MIN_RR_RATIO * (ask - STOP_LOSS_CENTS):
-                log.debug(f"[{ticker}] YES signal but R/R unfavorable at ask={ask}c (win={TAKE_PROFIT_CENTS-ask}c < {MIN_RR_RATIO}x loss={ask-STOP_LOSS_CENTS}c) — skipping")
+                log.debug(f"[{ticker}] YES signal but R/R unfavorable at ask={ask}c — skipping")
                 continue
             if not ext.confirm_entry(series, "yes", log):
                 continue
             filled_side = "yes"
-            entry_cents = ask
-            log.info(f"[{ticker}] MOMENTUM ENTRY: YES @ {entry_cents}c  (yes_bid={ob.yes_bid})")
+            signal_ask  = ask
             break
         elif ob.no_bid >= threshold:
             ask = ob.no_ask
@@ -770,17 +840,101 @@ def run_cycle(
                 log.debug(f"[{ticker}] NO signal but ask={ask}c > max {MOMENTUM_MAX_ENTRY_CENTS}c — skipping")
                 continue
             if (TAKE_PROFIT_CENTS - ask) < MIN_RR_RATIO * (ask - STOP_LOSS_CENTS):
-                log.debug(f"[{ticker}] NO signal but R/R unfavorable at ask={ask}c (win={TAKE_PROFIT_CENTS-ask}c < {MIN_RR_RATIO}x loss={ask-STOP_LOSS_CENTS}c) — skipping")
+                log.debug(f"[{ticker}] NO signal but R/R unfavorable at ask={ask}c — skipping")
                 continue
             if not ext.confirm_entry(series, "no", log):
                 continue
             filled_side = "no"
-            entry_cents = ask
-            log.info(f"[{ticker}] MOMENTUM ENTRY: NO @ {entry_cents}c  (no_bid={ob.no_bid})")
+            signal_ask  = ask
             break
     else:
         log.info(f"[{ticker}] No momentum signal — skipping")
         return
+
+    # ---- Entry execution: limit order with market fallback ----
+    limit_price = signal_ask - 1  # post 1c inside the spread
+
+    if not LIVE_MODE:
+        # Paper mode: simulate fill at limit price (optimistic but realistic)
+        entry_cents = limit_price
+        log.info(
+            f"[{ticker}] PAPER ENTRY: {filled_side.upper()} @ {entry_cents}c "
+            f"(limit sim, ask was {signal_ask}c)"
+        )
+    else:
+        # Live mode: balance check → limit order → 45s wait → market fallback
+        try:
+            balance = client.get_balance()
+            if balance < limit_price * CONTRACTS:
+                log.warning(f"[{ticker}] Insufficient balance: {balance}c < {limit_price}c — skipping")
+                return
+        except Exception as e:
+            log.warning(f"[{ticker}] Balance check failed: {e} — skipping")
+            return
+
+        order_id = client.place_order(ticker, filled_side, "limit", limit_price)
+        if not order_id:
+            log.warning(f"[{ticker}] Limit order placement failed — skipping")
+            return
+
+        log.info(f"[{ticker}] LIMIT ORDER: {filled_side.upper()} @ {limit_price}c  id={order_id}")
+
+        # Poll up to LIMIT_ORDER_TIMEOUT seconds for a fill
+        entry_cents = None
+        fill_deadline = time.time() + LIMIT_ORDER_TIMEOUT
+        while time.time() < fill_deadline:
+            time.sleep(3)
+            try:
+                status, filled_price = client.get_order_status(order_id)
+            except Exception:
+                continue
+            if status == "filled":
+                entry_cents = filled_price
+                log.info(f"[{ticker}] Limit FILLED @ {entry_cents}c")
+                break
+            elif status in ("canceled", "error"):
+                log.warning(f"[{ticker}] Limit order {status} unexpectedly")
+                return
+
+        if entry_cents is None:
+            # Not filled — cancel and try market if edge still valid
+            client.cancel_order(order_id)
+            log.info(f"[{ticker}] Limit not filled after {LIMIT_ORDER_TIMEOUT}s — checking edge for market fallback")
+
+            try:
+                ob2 = client.get_orderbook(ticker, expiry_ts)
+            except Exception:
+                log.warning(f"[{ticker}] Orderbook error during fallback — skipping")
+                return
+
+            cur_bid = ob2.yes_bid if filled_side == "yes" else ob2.no_bid
+            cur_ask = ob2.yes_ask if filled_side == "yes" else ob2.no_ask
+            threshold2 = max(MOMENTUM_THRESHOLD_CENTS, SERIES_THRESHOLD_OVERRIDE.get(series, 0))
+
+            if cur_bid >= threshold2 and cur_ask <= MOMENTUM_MAX_ENTRY_CENTS:
+                # Edge still valid — fire market order
+                mkt_id = client.place_order(ticker, filled_side, "market", None)
+                if not mkt_id:
+                    log.warning(f"[{ticker}] Market fallback order failed — skipping")
+                    return
+                log.info(f"[{ticker}] MARKET FALLBACK: {filled_side.upper()}  id={mkt_id}")
+                # Wait for market fill (should be near-instant)
+                for _ in range(10):
+                    time.sleep(2)
+                    try:
+                        status, filled_price = client.get_order_status(mkt_id)
+                    except Exception:
+                        continue
+                    if status == "filled":
+                        entry_cents = filled_price
+                        log.info(f"[{ticker}] Market FILLED @ {entry_cents}c")
+                        break
+                if entry_cents is None:
+                    log.warning(f"[{ticker}] Market order fill timeout — skipping")
+                    return
+            else:
+                log.info(f"[{ticker}] Edge gone (bid={cur_bid}c) — no market fallback, skipping")
+                return
 
     # ---- Phase 3: manage position ----
     tg_trade_entry(profile, series, filled_side, entry_cents)
@@ -821,20 +975,20 @@ def run_cycle(
         )
 
         if tte <= TIME_STOP_SECONDS:
-            exit_reason = "time_stop"
-            exit_cents  = mid
+            exit_reason  = "time_stop"
+            exit_cents   = mid
             log.info(f"[{ticker}] TIME STOP  tte={tte:.0f}s  exit@{exit_cents}c")
             break
 
         if bid >= TAKE_PROFIT_CENTS:
-            exit_reason = "take_profit"
-            exit_cents  = TAKE_PROFIT_CENTS
+            exit_reason  = "take_profit"
+            exit_cents   = TAKE_PROFIT_CENTS
             log.info(f"[{ticker}] TAKE PROFIT  exit@{exit_cents}c")
             break
 
         if mid <= dynamic_sl:
-            exit_reason = "stop_loss" if not trailing_active else "trailing_stop"
-            exit_cents  = dynamic_sl
+            exit_reason  = "stop_loss" if not trailing_active else "trailing_stop"
+            exit_cents   = dynamic_sl
             log.info(f"[{ticker}] {exit_reason.upper()}  mid={mid}c  exit@{exit_cents}c")
             break
 
@@ -842,10 +996,25 @@ def run_cycle(
         time.sleep(SL_POLL_INTERVAL if mid <= SL_ALERT_CENTS else ORDER_POLL_INTERVAL)
 
         if tte <= 0:
-            exit_reason = "expired"
-            exit_cents  = mid
+            exit_reason  = "expired"
+            exit_cents   = mid
             log.info(f"[{ticker}] EXPIRED  exit@{exit_cents}c")
             break
+
+    # ---- Live exit: place market sell order ----
+    if LIVE_MODE:
+        try:
+            sell_id = client.place_order(ticker, filled_side, "market", None, action="sell")
+            if sell_id:
+                for _ in range(15):
+                    time.sleep(2)
+                    status, actual_exit = client.get_order_status(sell_id)
+                    if status == "filled":
+                        log.info(f"[{ticker}] Exit filled @ {actual_exit}c (sim={exit_cents}c)")
+                        exit_cents = actual_exit  # use real fill price
+                        break
+        except Exception as e:
+            log.warning(f"[{ticker}] Exit order error: {e} — using simulated price")
 
     # ---- Record ----
     assert exit_reason and exit_cents is not None and entry_cents is not None
@@ -1149,7 +1318,7 @@ def main() -> None:
     global SCAN_WINDOW_SECONDS, TAKE_PROFIT_CENTS, STOP_LOSS_CENTS, SL_ALERT_CENTS
     global TIME_STOP_SECONDS, PRICE_MOMENTUM_MIN_PCT, VOLUME_RATIO_MIN
     global FUNDING_RATE_MAX, FEAR_GREED_EXTREME, MIN_RR_RATIO
-    global TRAILING_STOP_ACTIVATE, DAILY_LOSS_LIMIT_CENTS
+    global TRAILING_STOP_ACTIVATE, DAILY_LOSS_LIMIT_CENTS, LIVE_MODE
 
     parser = argparse.ArgumentParser(description="Kalshi Multi-Market Paper Scalper")
     parser.add_argument(
@@ -1181,6 +1350,7 @@ def main() -> None:
     MIN_RR_RATIO             = profile_cfg["MIN_RR_RATIO"]
     TRAILING_STOP_ACTIVATE   = profile_cfg["TRAILING_STOP_ACTIVATE"]
     DAILY_LOSS_LIMIT_CENTS   = profile_cfg["DAILY_LOSS_LIMIT_CENTS"]
+    LIVE_MODE                = os.environ.get("LIVE_MODE", "false").lower() == "true"
 
     # Default port per profile so all 3 can run simultaneously
     default_ports = {
@@ -1198,12 +1368,15 @@ def main() -> None:
     _root_log = setup_logging()
 
     log = get_log("MAIN")
+    mode_str = "🔴 LIVE TRADING" if LIVE_MODE else "📄 PAPER MODE"
     log.info("=" * 60)
-    log.info(f"Multi-Market Scalper  [PAPER MODE]  profile={ACTIVE_PROFILE.upper()}")
+    log.info(f"Multi-Market Scalper  [{mode_str}]  profile={ACTIVE_PROFILE.upper()}")
     log.info(f"Markets  : {', '.join(SERIES)}")
     log.info(f"Signal   : bid >= {MOMENTUM_THRESHOLD_CENTS}c after {ENTRY_WAIT_SECONDS}s  max_entry={MOMENTUM_MAX_ENTRY_CENTS}c")
     log.info(f"Exit     : TP={TAKE_PROFIT_CENTS}c  SL={STOP_LOSS_CENTS}c  TimeStop={TIME_STOP_SECONDS}s")
     log.info(f"Filters  : momentum>={PRICE_MOMENTUM_MIN_PCT}%  vol>={VOLUME_RATIO_MIN}x  funding<={FUNDING_RATE_MAX}")
+    log.info(f"Risk     : daily_limit={DAILY_LOSS_LIMIT_CENTS}c  trailing_stop=+{TRAILING_STOP_ACTIVATE}c")
+    log.info(f"Orders   : limit@ask-1c  timeout={LIMIT_ORDER_TIMEOUT}s  then market fallback")
     log.info(f"Report   : http://0.0.0.0:{port}/report")
     log.info("=" * 60)
 
