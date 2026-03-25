@@ -111,7 +111,7 @@ PROFILES: dict[str, dict] = {
     },
     "risky-0m": {
         # Risky params, enter immediately at contract open
-        "MOMENTUM_THRESHOLD_CENTS": 60,
+        "MOMENTUM_THRESHOLD_CENTS": 62,
         "MOMENTUM_MAX_ENTRY_CENTS": 76,
         "ENTRY_WAIT_SECONDS":       0,    # enter right at open
         "SCAN_WINDOW_SECONDS":      600,
@@ -127,7 +127,7 @@ PROFILES: dict[str, dict] = {
     },
     "risky-1m": {
         # Risky params, enter after 1 minute
-        "MOMENTUM_THRESHOLD_CENTS": 60,
+        "MOMENTUM_THRESHOLD_CENTS": 62,
         "MOMENTUM_MAX_ENTRY_CENTS": 76,
         "ENTRY_WAIT_SECONDS":       60,   # 1 min wait
         "SCAN_WINDOW_SECONDS":      600,
@@ -143,7 +143,7 @@ PROFILES: dict[str, dict] = {
     },
     "risky-2m": {
         # Risky params, enter after 2 minutes
-        "MOMENTUM_THRESHOLD_CENTS": 60,
+        "MOMENTUM_THRESHOLD_CENTS": 62,
         "MOMENTUM_MAX_ENTRY_CENTS": 76,
         "ENTRY_WAIT_SECONDS":       120,  # 2 min wait
         "SCAN_WINDOW_SECONDS":      600,
@@ -187,7 +187,7 @@ PROFILES: dict[str, dict] = {
         "VOLUME_RATIO_MIN":         1.2,
         "FUNDING_RATE_MAX":         0.0010,
         "FEAR_GREED_EXTREME":       20,
-        "MIN_RR_RATIO":             1.2,  # only enter if win >= 1.2x the potential loss
+        "MIN_RR_RATIO":             1.1,  # only enter if win >= 1.1x the potential loss
     },
 }
 
@@ -215,7 +215,7 @@ BINANCE_SYMBOL = {
 # Per-series momentum threshold overrides (added on top of profile threshold)
 # XRP and ETH historically weaker signals — require higher conviction to enter
 SERIES_THRESHOLD_OVERRIDE = {
-    "KXXRP15M": 67,
+    "KXXRP15M": 70,
     "KXETH15M": 67,
 }
 
