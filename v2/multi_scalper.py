@@ -232,51 +232,76 @@ def record_daily_pnl(pnl_cents: int) -> None:
         _daily_pnl_cents += pnl_cents
 
 # ---------------------------------------------------------------------------
-# Telegram alerts (optional — requires TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID)
+# Discord alerts (optional — requires DISCORD_WEBHOOK_URL in .env)
 # ---------------------------------------------------------------------------
 
-def _send_telegram(msg: str) -> None:
-    token   = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
-    if not token or not chat_id:
+def _is_edt() -> bool:
+    """True if US Eastern Daylight Time is active (2nd Sun Mar – 1st Sun Nov)."""
+    now = datetime.now(timezone.utc)
+    y = now.year
+    # Second Sunday of March
+    mar = datetime(y, 3, 8, tzinfo=timezone.utc)
+    while mar.weekday() != 6:
+        mar += __import__("datetime").timedelta(days=1)
+    # First Sunday of November
+    nov = datetime(y, 11, 1, tzinfo=timezone.utc)
+    while nov.weekday() != 6:
+        nov += __import__("datetime").timedelta(days=1)
+    return mar <= now < nov
+
+def _et_hour() -> int:
+    """Current hour in US Eastern time (handles EDT/EST automatically)."""
+    from datetime import timedelta
+    offset = timedelta(hours=-4 if _is_edt() else -5)
+    return (datetime.now(timezone.utc) + offset).hour
+
+def _send_discord(content: str) -> None:
+    url = os.environ.get("DISCORD_WEBHOOK_URL", "")
+    if not url:
         return
     try:
-        httpx.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": msg, "parse_mode": "HTML"},
-            timeout=5.0,
-        )
+        httpx.post(url, json={"content": content}, timeout=5.0)
     except Exception:
-        pass  # never let Telegram errors crash the bot
+        pass  # never let Discord errors crash the bot
+
+def _mode_tag(series: str) -> str:
+    return "🔴 LIVE" if (LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)) else "📄 PAPER"
 
 def tg_trade_entry(profile: str, series: str, side: str, entry: int) -> None:
-    _send_telegram(
-        f"📥 <b>ENTRY</b> [{profile}] {series}\n"
-        f"Side: {side.upper()}  @{entry}c"
+    _send_discord(
+        f"🟡 **ENTRY** | {profile}\n"
+        f"Market: {series} | Side: {side.upper()} @ {entry}c\n"
+        f"TP: {TAKE_PROFIT_CENTS}c | SL: {STOP_LOSS_CENTS}c | {_mode_tag(series)}"
     )
 
 def tg_trade_exit(profile: str, series: str, side: str, entry: int,
                   exit_c: int, reason: str, pnl: int) -> None:
     icon = "✅" if pnl > 0 else "❌" if pnl < 0 else "➖"
-    _send_telegram(
-        f"{icon} <b>EXIT</b> [{profile}] {series}\n"
-        f"Side: {side.upper()}  Entry:{entry}c → Exit:{exit_c}c\n"
-        f"Reason: {reason}  PnL: {pnl:+}c (${pnl/100:+.2f})"
+    label = reason.replace("_", " ").title()
+    _send_discord(
+        f"{icon} **{label}** | {profile}\n"
+        f"Market: {series} | Side: {side.upper()} | Entry: {entry}c → Exit: {exit_c}c\n"
+        f"P&L: {pnl:+}c (${pnl/100:+.2f}) | {_mode_tag(series)}"
     )
 
 def tg_circuit_breaker(profile: str, daily_pnl: int) -> None:
-    _send_telegram(
-        f"🚨 <b>CIRCUIT BREAKER</b> [{profile}]\n"
+    _send_discord(
+        f"🚨 **CIRCUIT BREAKER** | {profile}\n"
         f"Daily loss limit hit: {daily_pnl:+}c (${daily_pnl/100:+.2f})\n"
         f"No new trades until midnight UTC."
     )
 
 def tg_daily_summary(profile: str, trades: int, wins: int, pnl: int) -> None:
+    """Called by the scheduled summary thread — not the 15min stats reporter."""
     wp = wins / trades * 100 if trades else 0
     icon = "📈" if pnl > 0 else "📉"
-    _send_telegram(
-        f"{icon} <b>24h Summary</b> [{profile}]\n"
-        f"Trades: {trades}  Win%: {wp:.1f}%  PnL: {pnl:+}c (${pnl/100:+.2f})"
+    from datetime import timedelta
+    offset = timedelta(hours=-4 if _is_edt() else -5)
+    et_time = (datetime.now(timezone.utc) + offset).strftime("%I:%M %p ET")
+    _send_discord(
+        f"{icon} **Summary** | {profile} | {et_time}\n"
+        f"Trades: {trades} | Wins: {wins} | Win%: {wp:.1f}%\n"
+        f"Session P&L: {pnl:+}c (${pnl/100:+.2f})"
     )
 
 # External confirmation filters
@@ -1143,9 +1168,48 @@ def stats_reporter(conn: sqlite3.Connection, stop_event: threading.Event) -> Non
             total_trades_all = sum(trades for _, _, trades, _, _ in rows)
             log.info(f"  {'TOTAL':>12}                    PnL={total_pnl:>+5}c  ${total_pnl/100:.2f}")
             log.info("─" * 50)
-            tg_daily_summary(ACTIVE_PROFILE, total_trades_all, total_wins, total_pnl)
         except Exception as e:
             log.error(f"Stats error: {e}")
+
+# ---------------------------------------------------------------------------
+# Scheduled Discord summary (8am, noon, 5pm, 10pm ET)
+# ---------------------------------------------------------------------------
+
+_SUMMARY_HOURS_ET = {8, 12, 17, 22}
+
+def discord_summary_scheduler(conn: sqlite3.Connection, stop_event: threading.Event) -> None:
+    """Fire a Discord summary at 8am, 12pm, 5pm, 10pm ET — once per hour."""
+    fired_hours: set[str] = set()  # "YYYY-MM-DD-HH" keys to prevent double-fire
+    while not stop_event.is_set():
+        time.sleep(60)
+        try:
+            now_et = datetime.now(timezone.utc) + timedelta(hours=-4 if _is_edt() else -5)
+            hour = now_et.hour
+            if hour not in _SUMMARY_HOURS_ET:
+                continue
+            key = now_et.strftime("%Y-%m-%d-") + str(hour)
+            if key in fired_hours:
+                continue
+
+            # Pull 24h stats
+            rows = conn.execute(
+                """SELECT COUNT(*) as trades,
+                          SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins,
+                          SUM(pnl_cents) as pnl
+                   FROM bracket_trade_log
+                   WHERE created_at >= datetime('now', '-24 hours')"""
+            ).fetchone()
+            trades = rows[0] or 0
+            wins   = rows[1] or 0
+            pnl    = rows[2] or 0
+            tg_daily_summary(ACTIVE_PROFILE, trades, wins, pnl)
+            fired_hours.add(key)
+            # Prune old keys to avoid unbounded growth
+            if len(fired_hours) > 50:
+                fired_hours = set(list(fired_hours)[-20:])
+        except Exception as e:
+            get_log("DISCORD").error(f"Summary scheduler error: {e}")
+
 
 # ---------------------------------------------------------------------------
 # Report HTTP server
@@ -1442,6 +1506,15 @@ def main() -> None:
         daemon=True,
     )
     stats_t.start()
+
+    # Start Discord scheduled summary thread
+    discord_t = threading.Thread(
+        target=discord_summary_scheduler,
+        args=(conn, stop_event),
+        name="discord-summary",
+        daemon=True,
+    )
+    discord_t.start()
 
     # Start report HTTP server
     report_t = threading.Thread(
