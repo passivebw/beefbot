@@ -1370,6 +1370,39 @@ def report():
     })
 
 
+@_report_app.route("/history")
+def history():
+    if not _check_api_key():
+        return jsonify({"error": "unauthorized"}), 401
+    if _report_conn is None:
+        return jsonify({"error": "db not ready"}), 503
+
+    days = min(int(request.args.get("days", 7)), 30)
+    profile = request.args.get("profile", None)
+
+    where = f"created_at >= datetime('now', '-{days} days')"
+    if profile:
+        where += f" AND profile = '{profile}'"
+
+    rows = _report_conn.execute(
+        f"""SELECT date(created_at) as day, profile, series,
+                  COUNT(*) as trades,
+                  SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins,
+                  SUM(pnl_cents) as pnl
+           FROM bracket_trade_log
+           WHERE {where}
+           GROUP BY day, profile, series
+           ORDER BY day DESC, profile, trades DESC"""
+    ).fetchall()
+
+    return jsonify([
+        {"day": r[0], "profile": r[1], "series": r[2],
+         "trades": r[3], "wins": r[4], "win_pct": round((r[4] or 0) / r[3] * 100, 1) if r[3] else 0,
+         "pnl_cents": r[5] or 0}
+        for r in rows
+    ])
+
+
 def start_report_server(conn: sqlite3.Connection, port: int) -> None:
     global _report_conn
     _report_conn = conn
