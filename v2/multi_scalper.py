@@ -966,7 +966,8 @@ def run_cycle(
                 return
 
     # ---- Phase 3: manage position ----
-    tg_trade_entry(profile, series, filled_side, entry_cents)
+    if series_is_live:
+        tg_trade_entry(profile, series, filled_side, entry_cents)
     log.info(
         f"[{ticker}] Position open: LONG {filled_side.upper()} @ {entry_cents}c  "
         f"TP={TAKE_PROFIT_CENTS}c  SL={STOP_LOSS_CENTS}c(mid)"
@@ -1058,7 +1059,8 @@ def run_cycle(
 
     # Update circuit breaker counter and send Telegram alert
     record_daily_pnl(pnl_cents * CONTRACTS)
-    tg_trade_exit(profile, series, filled_side, entry_cents, exit_cents, exit_reason, pnl_cents)
+    if series_is_live:
+        tg_trade_exit(profile, series, filled_side, entry_cents, exit_cents, exit_reason, pnl_cents)
     with _daily_pnl_lock:
         daily_total = _daily_pnl_cents
     if circuit_breaker_open():
