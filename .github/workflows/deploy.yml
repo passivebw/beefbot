@@ -31,14 +31,14 @@ jobs:
             systemctl stop kalshi-bot-risky 2>/dev/null || true
             systemctl disable kalshi-bot-risky 2>/dev/null || true
 
-            # conservative - port 8001 - LIVE on BTC + SOL only
-            printf '[Unit]\nDescription=Kalshi Bot (conservative) LIVE BTC+SOL\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile conservative --port 8001 --live --live-series KXBTC15M,KXSOL15M\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/conservative.log\nStandardError=append:/opt/kalshi-bot/logs/conservative.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-conservative.service
+            # conservative - port 8001 - PAPER ONLY
+            printf '[Unit]\nDescription=Kalshi Bot (conservative) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile conservative --port 8001\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/conservative.log\nStandardError=append:/opt/kalshi-bot/logs/conservative.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-conservative.service
 
             # moderate - port 8000 - PAPER ONLY
             printf '[Unit]\nDescription=Kalshi Bot (moderate)\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile moderate --port 8000\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/moderate.log\nStandardError=append:/opt/kalshi-bot/logs/moderate.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-moderate.service
 
-            # risky-0m - port 8002 - LIVE on BNB + DOGE only
-            printf '[Unit]\nDescription=Kalshi Bot (risky-0m) LIVE BNB+DOGE\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile risky-0m --port 8002 --live --live-series KXBNB15M,KXDOGE15M\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/risky-0m.log\nStandardError=append:/opt/kalshi-bot/logs/risky-0m.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-risky-0m.service
+            # risky-0m - port 8002 - PAPER ONLY
+            printf '[Unit]\nDescription=Kalshi Bot (risky-0m) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile risky-0m --port 8002\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/risky-0m.log\nStandardError=append:/opt/kalshi-bot/logs/risky-0m.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-risky-0m.service
 
             # risky-1m - port 8003 - PAPER ONLY
             printf '[Unit]\nDescription=Kalshi Bot (risky-1m) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile risky-1m --port 8003\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/risky-1m.log\nStandardError=append:/opt/kalshi-bot/logs/risky-1m.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-risky-1m.service
