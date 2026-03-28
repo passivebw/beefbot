@@ -307,7 +307,7 @@ def tg_daily_summary(profile: str, trades: int, wins: int, pnl: int) -> None:
 # External confirmation filters
 PRICE_MOMENTUM_MIN_PCT   = 0.05  # require at least 0.05% price move in signal direction
 VOLUME_RATIO_MIN         = 1.2   # last candle volume must be 1.2x the recent average
-MIN_KALSHI_VOLUME = 5000.0  # skip live trades if contract volume < 5000 contracts (thin market protection)
+MIN_KALSHI_VOL_DOLLARS = 2000.0  # skip live trades if dollar volume < $2000 (matches Kalshi UI vol display)
 FUNDING_RATE_MAX         = 0.0010  # skip if funding rate strongly opposes direction (0.10%)
 FEAR_GREED_EXTREME       = 20    # skip if F&G < 20 (extreme fear) on YES, or > 80 on NO
 MIN_RR_RATIO             = 1.0   # minimum reward:risk ratio required to enter
@@ -837,10 +837,16 @@ def run_cycle(
             )
         except Exception:
             fresh_vol = contract_volume
-        if fresh_vol < MIN_KALSHI_VOLUME:
-            log.info(f"[{ticker}] Thin market: {fresh_vol:.0f} contracts < {MIN_KALSHI_VOLUME:.0f} — skipping")
+        try:
+            ob_liq = client.get_orderbook(ticker, expiry_ts)
+            mid_p = ((ob_liq.yes_bid + ob_liq.yes_ask) / 2) / 100.0 if ob_liq.yes_bid and ob_liq.yes_ask else 0.5
+        except Exception:
+            mid_p = 0.5
+        fresh_dollar_vol = fresh_vol * mid_p
+        if fresh_dollar_vol < MIN_KALSHI_VOL_DOLLARS:
+            log.info(f"[{ticker}] Thin market: ${fresh_dollar_vol:.0f} < ${MIN_KALSHI_VOL_DOLLARS:.0f} — skipping")
             return
-        log.info(f"[{ticker}] Liquidity OK: {fresh_vol:.0f} contracts")
+        log.info(f"[{ticker}] Liquidity OK: ${fresh_dollar_vol:.0f}")
 
     tte = expiry_ts - time.time()
     if tte <= TIME_STOP_SECONDS + 30:
@@ -1375,10 +1381,10 @@ def markets():
                 is_live = LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)
                 series_threshold = max(MOMENTUM_THRESHOLD_CENTS, SERIES_THRESHOLD_OVERRIDE.get(series, 0))
                 signal = "YES" if ob.yes_bid >= series_threshold else "NO" if ob.no_bid >= series_threshold else "none"
-                liquid = vol >= MIN_KALSHI_VOLUME
                 # Estimate dollar volume: contracts × avg_price (midpoint in dollars)
                 mid_price = ((ob.yes_bid + ob.yes_ask) / 2) / 100.0 if ob.yes_bid and ob.yes_ask else 0.5
                 dollar_vol = round(vol * mid_price)
+                liquid = dollar_vol >= MIN_KALSHI_VOL_DOLLARS
                 results.append({
                     "series": series,
                     "ticker": ticker,
