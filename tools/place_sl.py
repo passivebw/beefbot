@@ -1,10 +1,9 @@
-"""One-time script: place limit sell (SL) orders for open NO positions on BTC and SOL."""
-import os, time, base64, httpx, json
+"""Place SL limit sell orders for ALL open positions."""
+import os, time, base64, httpx
 from pathlib import Path
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 
-# Load .env
 for line in Path('/opt/kalshi-bot/.env').read_text().splitlines():
     line = line.strip()
     if '=' in line and not line.startswith('#'):
@@ -33,14 +32,14 @@ def get(path):
     r.raise_for_status()
     return r.json()
 
-def place_sell(ticker, side, price_cents):
+def place_order(ticker, side, action, price_cents, qty):
     path = '/trade-api/v2/portfolio/orders'
     body = {
         'ticker': ticker,
-        'action': 'sell',
+        'action': action,
         'side': side,
         'type': 'limit',
-        'count': 1,  # will be overridden per position
+        'count': qty,
     }
     if side == 'yes':
         body['yes_price'] = price_cents
@@ -50,61 +49,34 @@ def place_sell(ticker, side, price_cents):
     print(f"  -> {r.status_code}: {r.text[:300]}")
     return r
 
-# Get open positions
+# SL levels
+YES_SL = 50  # sell YES at 50c if position reverses
+NO_SL  = 50  # sell NO at 50c if position reverses
+
 print("Fetching open positions...")
 data = get('/portfolio/positions')
 positions = data.get('market_positions', [])
 
-print(f"Found {len(positions)} positions:")
-for p in positions:
-    ticker = p.get('market_id', '')
-    side = 'yes' if p.get('position', 0) > 0 else 'no'
-    qty = abs(p.get('position', 0))
-    print(f"  {ticker}  side={side}  qty={qty}")
+active = [(p['market_id'], p['position']) for p in positions if p.get('position', 0) != 0]
+print(f"Found {len(active)} active positions:")
+for ticker, pos in active:
+    side = 'yes' if pos > 0 else 'no'
+    qty = abs(pos)
+    print(f"  {ticker}  {side.upper()} x{qty}")
 
-# Find BTC and SOL NO positions
-btc_pos = [p for p in positions if 'KXBTC' in p.get('market_id','') and p.get('position',0) < 0]
-sol_pos = [p for p in positions if 'KXSOL' in p.get('market_id','') and p.get('position',0) < 0]
-
-print(f"\nBTC NO positions: {len(btc_pos)}")
-print(f"SOL NO positions: {len(sol_pos)}")
-
-# TP limit sell orders
-# SOL NO: sell at 80c
-# BTC NO: sell at 70c
-BTC_SL = 70
-SOL_SL = 80
-
-for p in btc_pos:
-    ticker = p['market_id']
-    qty = abs(p['position'])
-    print(f"\nPlacing BTC NO sell x{qty} @ {BTC_SL}c on {ticker}")
-    body = {
-        'ticker': ticker,
-        'action': 'sell',
-        'side': 'no',
-        'type': 'limit',
-        'count': qty,
-        'no_price': BTC_SL,
-    }
-    path = '/trade-api/v2/portfolio/orders'
-    r = httpx.post(BASE + '/portfolio/orders', headers=auth_headers('POST', path), json=body)
-    print(f"  -> {r.status_code}: {r.text[:300]}")
-
-for p in sol_pos:
-    ticker = p['market_id']
-    qty = abs(p['position'])
-    print(f"\nPlacing SOL NO sell x{qty} @ {SOL_SL}c on {ticker}")
-    body = {
-        'ticker': ticker,
-        'action': 'sell',
-        'side': 'no',
-        'type': 'limit',
-        'count': qty,
-        'no_price': SOL_SL,
-    }
-    path = '/trade-api/v2/portfolio/orders'
-    r = httpx.post(BASE + '/portfolio/orders', headers=auth_headers('POST', path), json=body)
-    print(f"  -> {r.status_code}: {r.text[:300]}")
+if not active:
+    print("No open positions — nothing to do.")
+else:
+    for ticker, pos in active:
+        if pos > 0:
+            # Long YES — SL: sell YES at 50c
+            qty = pos
+            print(f"\nPlacing SL: sell YES x{qty} @ {YES_SL}c on {ticker}")
+            place_order(ticker, 'yes', 'sell', YES_SL, qty)
+        else:
+            # Long NO — SL: sell NO at 50c
+            qty = abs(pos)
+            print(f"\nPlacing SL: sell NO x{qty} @ {NO_SL}c on {ticker}")
+            place_order(ticker, 'no', 'sell', NO_SL, qty)
 
 print("\nDone.")
