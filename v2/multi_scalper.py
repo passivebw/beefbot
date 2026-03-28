@@ -78,12 +78,12 @@ SL_POLL_INTERVAL     = 1   # fast polling when near stop loss
 
 PROFILES: dict[str, dict] = {
     "conservative": {
-        "MOMENTUM_THRESHOLD_CENTS": 63,
-        "MOMENTUM_MAX_ENTRY_CENTS": 71,
+        "MOMENTUM_THRESHOLD_CENTS": 58,
+        "MOMENTUM_MAX_ENTRY_CENTS": 80,
         "ENTRY_WAIT_SECONDS":        60,
         "SCAN_WINDOW_SECONDS":      900,
-        "TAKE_PROFIT_CENTS":        88,
-        "STOP_LOSS_CENTS":          53,
+        "TAKE_PROFIT_CENTS":        90,
+        "STOP_LOSS_CENTS":          50,
         "SL_ALERT_CENTS":           57,
         "TIME_STOP_SECONDS":        120,
         "PRICE_MOMENTUM_MIN_PCT":   0.10,
@@ -163,12 +163,12 @@ PROFILES: dict[str, dict] = {
         "TRAILING_STOP_ACTIVATE":   10,
     },
     "conservative-69": {
-        "MOMENTUM_THRESHOLD_CENTS": 63,
-        "MOMENTUM_MAX_ENTRY_CENTS": 69,
+        "MOMENTUM_THRESHOLD_CENTS": 58,
+        "MOMENTUM_MAX_ENTRY_CENTS": 80,
         "ENTRY_WAIT_SECONDS":        60,
         "SCAN_WINDOW_SECONDS":      900,
-        "TAKE_PROFIT_CENTS":        88,
-        "STOP_LOSS_CENTS":          53,
+        "TAKE_PROFIT_CENTS":        90,
+        "STOP_LOSS_CENTS":          50,
         "SL_ALERT_CENTS":           57,
         "TIME_STOP_SECONDS":        120,
         "PRICE_MOMENTUM_MIN_PCT":   0.10,
