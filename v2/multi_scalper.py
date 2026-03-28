@@ -696,23 +696,8 @@ class ExternalData:
     def confirm_entry(self, series: str, side: str, log: logging.LoggerAdapter) -> bool:
         """
         Returns True if external signals confirm the Kalshi momentum signal.
-        Only checks funding rate — price momentum check removed as it lags
-        behind fast-moving Kalshi signals and blocks valid entries.
+        All external filters removed — Kalshi signal alone determines entry.
         """
-        symbol = BINANCE_SYMBOL.get(series)
-        if not symbol:
-            return True  # no mapping = no filter
-
-        # Funding rate — skip if strongly opposing (over-extended position)
-        funding = self.funding_rate(symbol)
-        if funding is not None:
-            if side == "yes" and funding > FUNDING_RATE_MAX:
-                log.info(f"CONFIRM FAIL: {symbol} funding={funding:.4f} too high for YES (over-extended long)")
-                return False
-            if side == "no" and funding < -FUNDING_RATE_MAX:
-                log.info(f"CONFIRM FAIL: {symbol} funding={funding:.4f} too negative for NO (over-extended short)")
-                return False
-            log.debug(f"CONFIRM OK: {symbol} funding={funding:.4f}")
 
         return True
 
