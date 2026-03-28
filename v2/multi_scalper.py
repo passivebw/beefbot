@@ -826,15 +826,12 @@ def run_cycle(
             log.warning(f"[{ticker}] Orderbook error: {e}")
             continue
 
-        yes_bid = ob.yes_bid or 0
-        no_bid  = ob.no_bid  or 0
-        log.info(f"[{ticker}] scan: yes_ask={yes_ask} no_ask={no_ask} threshold={threshold} tte={tte:.0f}s early={in_early_warning}")
-
         # Signal check: ask >= threshold means the crowd is paying threshold cents for that side.
         # At 50/50 market, ask ~51c. As momentum builds, ask rises (63c, 70c, etc).
         # Trigger when ask reaches threshold — enter at ask-1c (maker, no fee).
         yes_ask = ob.yes_ask or 0
         no_ask  = ob.no_ask  or 0
+        log.info(f"[{ticker}] scan: yes_ask={yes_ask} no_ask={no_ask} threshold={threshold} tte={tte:.0f}s early={in_early_warning}")
         for side, ask_val in [("yes", yes_ask), ("no", no_ask)]:
             if ask_val == 0:
                 continue
