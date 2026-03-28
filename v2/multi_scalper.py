@@ -61,7 +61,7 @@ SERIES = [
 MOMENTUM_THRESHOLD_CENTS = 65   # raised from 60: require stronger conviction
 MOMENTUM_MAX_ENTRY_CENTS = 72   # skip if ask already above this (bad R/R)
 ENTRY_WAIT_SECONDS       = 180  # wait 3 min for direction to establish
-SCAN_WINDOW_SECONDS      = 480  # scan from min 3 to min 11 (8 min window)
+SCAN_WINDOW_SECONDS      = 900  # scan until time-stop kicks in (tte check inside loop)
 TAKE_PROFIT_CENTS        = 85   # exit when bid reaches this
 STOP_LOSS_CENTS          = 50   # exit if mid drops back to 50c
 SL_ALERT_CENTS           = 55   # switch to fast polling when mid drops here
@@ -81,7 +81,7 @@ PROFILES: dict[str, dict] = {
         "MOMENTUM_THRESHOLD_CENTS": 63,
         "MOMENTUM_MAX_ENTRY_CENTS": 71,
         "ENTRY_WAIT_SECONDS":        60,
-        "SCAN_WINDOW_SECONDS":      360,
+        "SCAN_WINDOW_SECONDS":      900,
         "TAKE_PROFIT_CENTS":        88,
         "STOP_LOSS_CENTS":          53,
         "SL_ALERT_CENTS":           57,
@@ -98,7 +98,7 @@ PROFILES: dict[str, dict] = {
         "MOMENTUM_THRESHOLD_CENTS": 65,
         "MOMENTUM_MAX_ENTRY_CENTS": 72,
         "ENTRY_WAIT_SECONDS":       180,
-        "SCAN_WINDOW_SECONDS":      480,
+        "SCAN_WINDOW_SECONDS":      900,
         "TAKE_PROFIT_CENTS":        85,
         "STOP_LOSS_CENTS":          50,
         "SL_ALERT_CENTS":           55,
@@ -115,7 +115,7 @@ PROFILES: dict[str, dict] = {
         "MOMENTUM_THRESHOLD_CENTS": 62,
         "MOMENTUM_MAX_ENTRY_CENTS": 76,
         "ENTRY_WAIT_SECONDS":        0,
-        "SCAN_WINDOW_SECONDS":      600,
+        "SCAN_WINDOW_SECONDS":      900,
         "TAKE_PROFIT_CENTS":        90,
         "STOP_LOSS_CENTS":          45,
         "SL_ALERT_CENTS":           52,
@@ -132,7 +132,7 @@ PROFILES: dict[str, dict] = {
         "MOMENTUM_THRESHOLD_CENTS": 62,
         "MOMENTUM_MAX_ENTRY_CENTS": 76,
         "ENTRY_WAIT_SECONDS":        60,
-        "SCAN_WINDOW_SECONDS":      600,
+        "SCAN_WINDOW_SECONDS":      900,
         "TAKE_PROFIT_CENTS":        90,
         "STOP_LOSS_CENTS":          45,
         "SL_ALERT_CENTS":           52,
@@ -149,7 +149,7 @@ PROFILES: dict[str, dict] = {
         "MOMENTUM_THRESHOLD_CENTS": 62,
         "MOMENTUM_MAX_ENTRY_CENTS": 76,
         "ENTRY_WAIT_SECONDS":       120,
-        "SCAN_WINDOW_SECONDS":      600,
+        "SCAN_WINDOW_SECONDS":      900,
         "TAKE_PROFIT_CENTS":        90,
         "STOP_LOSS_CENTS":          45,
         "SL_ALERT_CENTS":           52,
@@ -166,7 +166,7 @@ PROFILES: dict[str, dict] = {
         "MOMENTUM_THRESHOLD_CENTS": 63,
         "MOMENTUM_MAX_ENTRY_CENTS": 69,
         "ENTRY_WAIT_SECONDS":        60,
-        "SCAN_WINDOW_SECONDS":      360,
+        "SCAN_WINDOW_SECONDS":      900,
         "TAKE_PROFIT_CENTS":        88,
         "STOP_LOSS_CENTS":          53,
         "SL_ALERT_CENTS":           57,
@@ -183,7 +183,7 @@ PROFILES: dict[str, dict] = {
         "MOMENTUM_THRESHOLD_CENTS": 65,
         "MOMENTUM_MAX_ENTRY_CENTS": 72,
         "ENTRY_WAIT_SECONDS":       180,
-        "SCAN_WINDOW_SECONDS":      480,
+        "SCAN_WINDOW_SECONDS":      900,
         "TAKE_PROFIT_CENTS":        85,
         "STOP_LOSS_CENTS":          50,
         "SL_ALERT_CENTS":           55,
