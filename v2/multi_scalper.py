@@ -963,10 +963,50 @@ def run_cycle(
 
     exit_reason: Optional[str] = None
     exit_cents:  Optional[int] = None
-    dynamic_sl   = STOP_LOSS_CENTS   # trailing stop — starts at fixed SL
+    dynamic_sl      = STOP_LOSS_CENTS
     trailing_active = False
+    sl_order_id: Optional[str] = None  # resting limit SL order
+
+    # ---- Place resting SL limit order immediately after entry ----
+    if series_is_live:
+        try:
+            sl_order_id = client.place_order(ticker, filled_side, "limit", dynamic_sl, action="sell")
+            if sl_order_id:
+                log.info(f"[{ticker}] Resting SL limit @ {dynamic_sl}c  id={sl_order_id}")
+            else:
+                log.warning(f"[{ticker}] Failed to place resting SL — will use market fallback")
+        except Exception as e:
+            log.warning(f"[{ticker}] SL order error: {e} — will use market fallback")
+
+    def _replace_sl(new_price: int) -> None:
+        nonlocal sl_order_id
+        if not series_is_live or not sl_order_id:
+            return
+        try:
+            client.cancel_order(sl_order_id)
+        except Exception:
+            pass
+        try:
+            sl_order_id = client.place_order(ticker, filled_side, "limit", new_price, action="sell")
+            log.info(f"[{ticker}] SL moved to {new_price}c  id={sl_order_id}")
+        except Exception as e:
+            log.warning(f"[{ticker}] Failed to replace SL @ {new_price}c: {e}")
+            sl_order_id = None
 
     while True:
+        # Check if resting SL filled externally
+        if series_is_live and sl_order_id:
+            try:
+                sl_status, sl_filled_price = client.get_order_status(sl_order_id)
+                if sl_status == "filled":
+                    exit_reason = "stop_loss" if not trailing_active else "trailing_stop"
+                    exit_cents  = sl_filled_price
+                    sl_order_id = None
+                    log.info(f"[{ticker}] SL limit FILLED @ {exit_cents}c — {exit_reason}")
+                    break
+            except Exception:
+                pass
+
         try:
             ob = client.get_orderbook(ticker, expiry_ts)
         except Exception as e:
@@ -978,49 +1018,67 @@ def run_cycle(
         mid = current_mid(ob, filled_side)
         bid = ob.yes_bid if filled_side == "yes" else ob.no_bid
 
-        # Trailing stop: once price moves TRAILING_STOP_ACTIVATE cents in our
-        # favour, move SL up to entry (breakeven) so a winner can't become a loser
+        # Trailing stop: move SL to breakeven once up 8c
         if not trailing_active and mid >= entry_cents + TRAILING_STOP_ACTIVATE:
-            dynamic_sl      = entry_cents
             trailing_active = True
-            log.info(
-                f"[{ticker}] TRAILING STOP activated — SL moved to breakeven {dynamic_sl}c"
-            )
+            dynamic_sl      = entry_cents
+            log.info(f"[{ticker}] TRAILING STOP activated — SL moving to breakeven {dynamic_sl}c")
+            _replace_sl(dynamic_sl)
 
-        log.debug(
-            f"[{ticker}] pos: side={filled_side} mid={mid}c bid={bid}c  "
-            f"sl={dynamic_sl}c  tte={tte:.0f}s"
-        )
+        log.debug(f"[{ticker}] pos: side={filled_side} mid={mid}c bid={bid}c sl={dynamic_sl}c tte={tte:.0f}s")
 
         if tte <= TIME_STOP_SECONDS:
-            exit_reason  = "time_stop"
-            exit_cents   = mid
+            exit_reason = "time_stop"
+            exit_cents  = mid
             log.info(f"[{ticker}] TIME STOP  tte={tte:.0f}s  exit@{exit_cents}c")
+            if sl_order_id:
+                client.cancel_order(sl_order_id)
+                sl_order_id = None
             break
 
         if bid >= TAKE_PROFIT_CENTS:
-            exit_reason  = "take_profit"
-            exit_cents   = TAKE_PROFIT_CENTS
-            log.info(f"[{ticker}] TAKE PROFIT  exit@{exit_cents}c")
+            exit_reason = "take_profit"
+            exit_cents  = TAKE_PROFIT_CENTS - 1  # 1c under TP to ensure fill
+            log.info(f"[{ticker}] TAKE PROFIT hit — moving SL to {exit_cents}c")
+            _replace_sl(exit_cents)
+            # Let the resting order collect the exit; monitor for fill
+            for _ in range(30):
+                time.sleep(2)
+                if not sl_order_id:
+                    break
+                try:
+                    sl_status, sl_filled_price = client.get_order_status(sl_order_id)
+                    if sl_status == "filled":
+                        exit_cents  = sl_filled_price
+                        sl_order_id = None
+                        break
+                except Exception:
+                    pass
+            if sl_order_id:
+                client.cancel_order(sl_order_id)
+                sl_order_id = None
             break
 
-        if mid <= dynamic_sl:
-            exit_reason  = "stop_loss" if not trailing_active else "trailing_stop"
-            exit_cents   = dynamic_sl
+        if mid <= dynamic_sl and not series_is_live:
+            # Paper mode only — live uses resting SL order
+            exit_reason = "stop_loss" if not trailing_active else "trailing_stop"
+            exit_cents  = dynamic_sl
             log.info(f"[{ticker}] {exit_reason.upper()}  mid={mid}c  exit@{exit_cents}c")
             break
 
-        # Fast polling when near SL to catch it quickly
-        time.sleep(SL_POLL_INTERVAL if mid <= SL_ALERT_CENTS else ORDER_POLL_INTERVAL)
-
         if tte <= 0:
-            exit_reason  = "expired"
-            exit_cents   = mid
+            exit_reason = "expired"
+            exit_cents  = mid
             log.info(f"[{ticker}] EXPIRED  exit@{exit_cents}c")
+            if sl_order_id:
+                client.cancel_order(sl_order_id)
+                sl_order_id = None
             break
 
-    # ---- Live exit: place market sell order ----
-    if series_is_live:
+        time.sleep(SL_POLL_INTERVAL if mid <= SL_ALERT_CENTS else ORDER_POLL_INTERVAL)
+
+    # ---- Live exit: if no resting order handled it, market sell fallback ----
+    if series_is_live and exit_cents is None:
         try:
             sell_id = client.place_order(ticker, filled_side, "market", None, action="sell")
             if sell_id:
@@ -1028,11 +1086,13 @@ def run_cycle(
                     time.sleep(2)
                     status, actual_exit = client.get_order_status(sell_id)
                     if status == "filled":
-                        log.info(f"[{ticker}] Exit filled @ {actual_exit}c (sim={exit_cents}c)")
-                        exit_cents = actual_exit  # use real fill price
+                        exit_cents = actual_exit
+                        log.info(f"[{ticker}] Market exit filled @ {exit_cents}c")
                         break
         except Exception as e:
-            log.warning(f"[{ticker}] Exit order error: {e} — using simulated price")
+            log.warning(f"[{ticker}] Exit order error: {e}")
+    if exit_cents is None:
+        exit_cents = dynamic_sl  # fallback estimate
 
     # ---- Record ----
     assert exit_reason and exit_cents is not None and entry_cents is not None
