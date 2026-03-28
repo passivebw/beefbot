@@ -1232,6 +1232,7 @@ def discord_summary_scheduler(conn: sqlite3.Connection, stop_event: threading.Ev
 
 _report_app = Flask(__name__)
 _report_conn: Optional[sqlite3.Connection] = None
+_report_auth: Optional[KalshiAuth] = None
 _bot_start_time = time.time()
 
 
@@ -1383,6 +1384,45 @@ def report():
     })
 
 
+@_report_app.route("/markets")
+def markets():
+    if _report_auth is None:
+        return jsonify({"error": "auth not ready"}), 503
+    try:
+        client = KalshiClient(_report_auth)
+        balance = client.get_balance()
+        results = []
+        threshold = max(MOMENTUM_THRESHOLD_CENTS, 0)
+        for series in SERIES:
+            try:
+                result = find_next_contract(client, series)
+                if result is None:
+                    results.append({"series": series, "status": "no_contract"})
+                    continue
+                ticker, expiry_ts = result
+                ob = client.get_orderbook(ticker, expiry_ts)
+                is_live = LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)
+                series_threshold = max(MOMENTUM_THRESHOLD_CENTS, SERIES_THRESHOLD_OVERRIDE.get(series, 0))
+                signal = "YES" if ob.yes_bid >= series_threshold else "NO" if ob.no_bid >= series_threshold else "none"
+                liquid = ob.best_bid_dollars >= MIN_KALSHI_LIQUIDITY_USD
+                results.append({
+                    "series": series,
+                    "ticker": ticker,
+                    "yes_bid": ob.yes_bid, "yes_ask": ob.yes_ask,
+                    "no_bid": ob.no_bid,   "no_ask": ob.no_ask,
+                    "liquidity_usd": round(ob.best_bid_dollars, 2),
+                    "liquid_enough": liquid,
+                    "signal": signal,
+                    "live": is_live,
+                    "would_trade": signal != "none" and liquid and is_live,
+                })
+            except Exception as e:
+                results.append({"series": series, "error": str(e)})
+        return jsonify({"balance_cents": balance, "threshold": MOMENTUM_THRESHOLD_CENTS, "markets": results})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @_report_app.route("/status")
 def status():
     return jsonify({
@@ -1448,8 +1488,9 @@ def history():
     ])
 
 
-def start_report_server(conn: sqlite3.Connection, port: int) -> None:
-    global _report_conn
+def start_report_server(conn: sqlite3.Connection, port: int, auth: KalshiAuth = None) -> None:
+    global _report_conn, _report_auth
+    _report_auth = auth
     _report_conn = conn
     import logging as _logging
     _logging.getLogger("werkzeug").setLevel(_logging.ERROR)
@@ -1599,7 +1640,7 @@ def main() -> None:
     # Start report HTTP server
     report_t = threading.Thread(
         target=start_report_server,
-        args=(conn, port),
+        args=(conn, port, auth),
         name="report-server",
         daemon=True,
     )
