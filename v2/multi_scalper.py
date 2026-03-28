@@ -1392,25 +1392,32 @@ def markets():
         client = KalshiClient(_report_auth)
         balance = client.get_balance()
         results = []
-        threshold = max(MOMENTUM_THRESHOLD_CENTS, 0)
         for series in SERIES:
             try:
-                result = find_next_contract(client, series)
-                if result is None:
+                mkts = client.get_open_markets(series, limit=5)
+                now = time.time()
+                candidates = [(m, _parse_iso(m.get("close_time") or m.get("expiration_time") or "")) for m in mkts]
+                candidates = [(m, exp) for m, exp in candidates if exp - now > 90]
+                if not candidates:
                     results.append({"series": series, "status": "no_contract"})
                     continue
-                ticker, expiry_ts = result
+                candidates.sort(key=lambda x: x[1])
+                mkt, expiry_ts = candidates[0]
+                ticker = mkt["ticker"]
+                volume = int(mkt.get("volume", 0) or 0)
+                dollar_volume = float(mkt.get("dollar_volume", 0) or 0)
                 ob = client.get_orderbook(ticker, expiry_ts)
                 is_live = LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)
                 series_threshold = max(MOMENTUM_THRESHOLD_CENTS, SERIES_THRESHOLD_OVERRIDE.get(series, 0))
                 signal = "YES" if ob.yes_bid >= series_threshold else "NO" if ob.no_bid >= series_threshold else "none"
-                liquid = ob.best_bid_dollars >= MIN_KALSHI_LIQUIDITY_USD
+                liquid = dollar_volume >= MIN_KALSHI_LIQUIDITY_USD
                 results.append({
                     "series": series,
                     "ticker": ticker,
                     "yes_bid": ob.yes_bid, "yes_ask": ob.yes_ask,
                     "no_bid": ob.no_bid,   "no_ask": ob.no_ask,
-                    "liquidity_usd": round(ob.best_bid_dollars, 2),
+                    "volume_contracts": volume,
+                    "dollar_volume": dollar_volume,
                     "liquid_enough": liquid,
                     "signal": signal,
                     "live": is_live,
