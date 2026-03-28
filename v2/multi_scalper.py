@@ -845,9 +845,15 @@ def run_cycle(
         no_bid  = ob.no_bid  or 0
         log.debug(f"[{ticker}] scan: yes_bid={yes_bid} no_bid={no_bid} tte={tte:.0f}s early={in_early_warning}")
 
-        # Regular threshold check
-        for side, bid, ask_val in [("yes", yes_bid, ob.yes_ask or 0), ("no", no_bid, ob.no_ask or 0)]:
-            if bid >= threshold:
+        # Signal check: ask >= threshold means the crowd is paying threshold cents for that side.
+        # At 50/50 market, ask ~51c. As momentum builds, ask rises (63c, 70c, etc).
+        # Trigger when ask reaches threshold — enter at ask-1c (maker, no fee).
+        yes_ask = ob.yes_ask or 0
+        no_ask  = ob.no_ask  or 0
+        for side, ask_val in [("yes", yes_ask), ("no", no_ask)]:
+            if ask_val == 0:
+                continue
+            if ask_val >= threshold:
                 if ask_val > MOMENTUM_MAX_ENTRY_CENTS:
                     log.debug(f"[{ticker}] {side.upper()} signal but ask={ask_val}c > max {MOMENTUM_MAX_ENTRY_CENTS}c — skipping")
                     continue
@@ -859,14 +865,14 @@ def run_cycle(
         if filled_side:
             break
 
-        # Early warning: bid crossed (threshold - 8c) — switch to 1s polling
-        warning_threshold = threshold - EARLY_WARNING_OFFSET
-        if not in_early_warning and (yes_bid >= warning_threshold or no_bid >= warning_threshold):
+        # Early warning: ask crossed (threshold - 8c) rising — switch to 1s polling
+        warning_ask = threshold - EARLY_WARNING_OFFSET
+        if not in_early_warning and (yes_ask >= warning_ask or no_ask >= warning_ask):
             in_early_warning = True
-            log.info(f"[{ticker}] EARLY WARNING: bid={max(yes_bid, no_bid)}c >= {warning_threshold}c — switching to 1s polling")
-        elif in_early_warning and yes_bid < warning_threshold - 3 and no_bid < warning_threshold - 3:
+            log.info(f"[{ticker}] EARLY WARNING: ask={max(yes_ask, no_ask)}c >= {warning_ask}c — switching to 1s polling")
+        elif in_early_warning and yes_ask < warning_ask - 3 and no_ask < warning_ask - 3:
             in_early_warning = False
-            log.info(f"[{ticker}] Price retreated below warning — back to {ORDER_POLL_INTERVAL}s polling")
+            log.info(f"[{ticker}] Ask retreated — back to {ORDER_POLL_INTERVAL}s polling")
     else:
         log.info(f"[{ticker}] No momentum signal in scan window — skipping")
         return
