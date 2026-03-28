@@ -69,11 +69,11 @@ sol_pos = [p for p in positions if 'KXSOL' in p.get('market_id','') and p.get('p
 print(f"\nBTC NO positions: {len(btc_pos)}")
 print(f"SOL NO positions: {len(sol_pos)}")
 
-# SL levels — set above avg entry to lock in profit
-# BTC avg entry 60.43c → SL at 65c (locks in profit above entry)
-# SOL avg entry 76.17c → SL at 78c (locks in profit above entry)
-BTC_SL = 65
-SOL_SL = 78
+# TP limit sell orders
+# SOL NO: sell at 80c
+# BTC NO: sell at 70c
+BTC_SL = 70
+SOL_SL = 80
 
 for p in btc_pos:
     ticker = p['market_id']
