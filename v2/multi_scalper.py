@@ -1393,9 +1393,28 @@ def history():
     days = min(int(request.args.get("days", 7)), 30)
     profile = request.args.get("profile", None)
 
+    group_by_hour = request.args.get("by_hour", "false").lower() == "true"
     where = f"created_at >= datetime('now', '-{days} days')"
     if profile:
         where += f" AND profile = '{profile}'"
+
+    if group_by_hour:
+        rows = _report_conn.execute(
+            f"""SELECT strftime('%Y-%m-%d %H', created_at) as hour, profile, series,
+                      COUNT(*) as trades,
+                      SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins,
+                      SUM(pnl_cents) as pnl
+               FROM bracket_trade_log
+               WHERE {where}
+               GROUP BY hour, profile, series
+               ORDER BY hour DESC, profile, trades DESC"""
+        ).fetchall()
+        return jsonify([
+            {"hour": r[0], "profile": r[1], "series": r[2],
+             "trades": r[3], "wins": r[4], "win_pct": round((r[4] or 0) / r[3] * 100, 1) if r[3] else 0,
+             "pnl_cents": r[5] or 0}
+            for r in rows
+        ])
 
     rows = _report_conn.execute(
         f"""SELECT date(created_at) as day, profile, series,
