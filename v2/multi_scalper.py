@@ -307,7 +307,7 @@ def tg_daily_summary(profile: str, trades: int, wins: int, pnl: int) -> None:
 # External confirmation filters
 PRICE_MOMENTUM_MIN_PCT   = 0.05  # require at least 0.05% price move in signal direction
 VOLUME_RATIO_MIN         = 1.2   # last candle volume must be 1.2x the recent average
-MIN_KALSHI_LIQUIDITY_USD = 500.0 # skip if best bid depth < $500 (thin market protection)
+MIN_KALSHI_VOLUME = 5000.0  # skip live trades if contract volume < 5000 contracts (thin market protection)
 FUNDING_RATE_MAX         = 0.0010  # skip if funding rate strongly opposes direction (0.10%)
 FEAR_GREED_EXTREME       = 20    # skip if F&G < 20 (extreme fear) on YES, or > 80 on NO
 MIN_RR_RATIO             = 1.0   # minimum reward:risk ratio required to enter
@@ -490,7 +490,6 @@ class OrderBook:
     no_bid: int
     no_ask: int
     expiry_ts: float
-    best_bid_dollars: float = 0.0  # dollar size at best bid level
 
     @property
     def mid_yes(self) -> int:
@@ -542,17 +541,11 @@ class KalshiClient:
         yes_ask = 100 - no_bid
         no_ask  = 100 - yes_bid
 
-        # Dollar size at the best bid (YES or NO, whichever is larger)
-        yes_size = float(yes_bids[0][1]) if yes_bids and len(yes_bids[0]) > 1 else 0.0
-        no_size  = float(no_bids[0][1])  if no_bids  and len(no_bids[0])  > 1 else 0.0
-        best_bid_dollars = max(yes_size, no_size)
-
         return OrderBook(
             ticker=ticker,
             yes_bid=yes_bid, yes_ask=yes_ask,
             no_bid=no_bid,   no_ask=no_ask,
             expiry_ts=expiry_ts,
-            best_bid_dollars=best_bid_dollars,
         )
 
     def get_balance(self) -> int:
@@ -760,8 +753,8 @@ class ExternalData:
 # Strategy helpers
 # ---------------------------------------------------------------------------
 
-def find_next_contract(client: KalshiClient, series: str) -> Optional[tuple[str, float]]:
-    """Return (ticker, expiry_ts) for the soonest open contract with >90s remaining."""
+def find_next_contract(client: KalshiClient, series: str) -> Optional[tuple[str, float, float]]:
+    """Return (ticker, expiry_ts, volume_fp) for the soonest open contract with >90s remaining."""
     try:
         markets = client.get_open_markets(series, limit=5)
     except Exception:
@@ -773,13 +766,14 @@ def find_next_contract(client: KalshiClient, series: str) -> Optional[tuple[str,
         exp = _parse_iso(m.get("close_time") or m.get("expiration_time") or "")
         tte = exp - now
         if tte > 90:
-            candidates.append((tte, m["ticker"], exp))
+            vol = float(m.get("volume_fp", 0) or 0)
+            candidates.append((tte, m["ticker"], exp, vol))
 
     if not candidates:
         return None
     candidates.sort(key=lambda x: x[0])
-    _, ticker, exp = candidates[0]
-    return ticker, exp
+    _, ticker, exp, vol = candidates[0]
+    return ticker, exp, vol
 
 
 def next_quarter_hour_ts() -> float:
@@ -811,6 +805,7 @@ def run_cycle(
     profile: str,
     ticker: str,
     expiry_ts: float,
+    contract_volume: float = 0.0,
 ) -> None:
     """Momentum-follow cycle: wait 3 min, enter on strong directional signal."""
 
@@ -856,8 +851,8 @@ def run_cycle(
         threshold = max(MOMENTUM_THRESHOLD_CENTS, SERIES_THRESHOLD_OVERRIDE.get(series, 0))
 
         _is_live = LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)
-        if _is_live and ob.best_bid_dollars < MIN_KALSHI_LIQUIDITY_USD:
-            log.debug(f"[{ticker}] Skipping — thin market: ${ob.best_bid_dollars:.0f} < ${MIN_KALSHI_LIQUIDITY_USD:.0f} required")
+        if _is_live and contract_volume < MIN_KALSHI_VOLUME:
+            log.debug(f"[{ticker}] Skipping — thin market: {contract_volume:.0f} contracts < {MIN_KALSHI_VOLUME:.0f} required")
             continue
 
         if ob.yes_bid >= threshold:
@@ -1120,7 +1115,7 @@ def series_worker(
             time.sleep(MARKET_POLL_INTERVAL)
             continue
 
-        ticker, expiry_ts = result
+        ticker, expiry_ts, contract_volume = result
         tte = expiry_ts - time.time()
 
         if ticker == known_ticker:
@@ -1128,11 +1123,11 @@ def series_worker(
             time.sleep(MARKET_POLL_INTERVAL)
             continue
 
-        log.info(f"New contract: {ticker}  tte={tte:.0f}s")
+        log.info(f"New contract: {ticker}  tte={tte:.0f}s  volume={contract_volume:.0f}")
         known_ticker = ticker
 
         try:
-            run_cycle(client, ext, conn, log, series, profile, ticker, expiry_ts)
+            run_cycle(client, ext, conn, log, series, profile, ticker, expiry_ts, contract_volume)
         except Exception as e:
             log.error(f"Cycle error: {e}", exc_info=True)
 
@@ -1404,20 +1399,18 @@ def markets():
                 candidates.sort(key=lambda x: x[1])
                 mkt, expiry_ts = candidates[0]
                 ticker = mkt["ticker"]
-                volume = int(mkt.get("volume", 0) or 0)
-                dollar_volume = float(mkt.get("dollar_volume", 0) or 0)
+                vol = float(mkt.get("volume_fp", 0) or 0)
                 ob = client.get_orderbook(ticker, expiry_ts)
                 is_live = LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)
                 series_threshold = max(MOMENTUM_THRESHOLD_CENTS, SERIES_THRESHOLD_OVERRIDE.get(series, 0))
                 signal = "YES" if ob.yes_bid >= series_threshold else "NO" if ob.no_bid >= series_threshold else "none"
-                liquid = dollar_volume >= MIN_KALSHI_LIQUIDITY_USD
+                liquid = vol >= MIN_KALSHI_VOLUME
                 results.append({
                     "series": series,
                     "ticker": ticker,
                     "yes_bid": ob.yes_bid, "yes_ask": ob.yes_ask,
                     "no_bid": ob.no_bid,   "no_ask": ob.no_ask,
-                    "volume_contracts": volume,
-                    "dollar_volume": dollar_volume,
+                    "volume_contracts": round(vol),
                     "liquid_enough": liquid,
                     "signal": signal,
                     "live": is_live,
