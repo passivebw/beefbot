@@ -934,7 +934,7 @@ def run_cycle(
 
     exit_reason: Optional[str] = None
     exit_cents:  Optional[int] = None
-    dynamic_sl  = STOP_LOSS_CENTS
+    dynamic_sl  = max(entry_cents - 12, STOP_LOSS_CENTS)
     sl_order_id: Optional[str] = None  # resting limit SL order
 
     # ---- Place resting SL limit order immediately after entry ----
@@ -942,7 +942,7 @@ def run_cycle(
         try:
             sl_order_id = client.place_order(ticker, filled_side, "limit", dynamic_sl, action="sell")
             if sl_order_id:
-                log.info(f"[{ticker}] Resting SL limit @ {dynamic_sl}c  id={sl_order_id}")
+                log.info(f"[{ticker}] Resting SL limit @ {dynamic_sl}c (entry={entry_cents}c)  id={sl_order_id}")
             else:
                 log.warning(f"[{ticker}] Failed to place resting SL")
         except Exception as e:
