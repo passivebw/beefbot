@@ -1095,9 +1095,8 @@ def recover_open_position(client: KalshiClient, series: str, log: logging.Logger
         return
 
     for p in positions:
-        ticker = p.get("market_id", "")
-        qty    = p.get("position", 0)
-        log.info(f"Startup position: ticker={ticker} qty={qty} keys={list(p.keys())}")
+        ticker = p.get("ticker", "")
+        qty    = int(p.get("position_fp", 0) or 0)
         if series not in ticker or qty == 0:
             continue
         side = "yes" if qty > 0 else "no"

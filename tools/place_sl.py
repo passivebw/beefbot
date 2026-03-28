@@ -70,14 +70,16 @@ if not active:
 else:
     for ticker, pos in active:
         if pos > 0:
-            # Long YES — SL: sell YES at 50c
             qty = pos
             print(f"\nPlacing SL: sell YES x{qty} @ {YES_SL}c on {ticker}")
             place_order(ticker, 'yes', 'sell', YES_SL, qty)
         else:
-            # Long NO — SL: sell NO at 50c
             qty = abs(pos)
             print(f"\nPlacing SL: sell NO x{qty} @ {NO_SL}c on {ticker}")
             place_order(ticker, 'no', 'sell', NO_SL, qty)
+
+# EMERGENCY: also place SL directly on known open SOL YES contracts
+print("\nEmergency SL for known SOL YES positions...")
+place_order('KXSOL15M-26MAR281230-30', 'yes', 'sell', 50, 2)
 
 print("\nDone.")
