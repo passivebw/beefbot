@@ -78,7 +78,7 @@ SL_POLL_INTERVAL     = 1   # fast polling when near stop loss
 
 PROFILES: dict[str, dict] = {
     "conservative": {
-        "MOMENTUM_THRESHOLD_CENTS": 65,
+        "MOMENTUM_THRESHOLD_CENTS": 63,
         "MOMENTUM_MAX_ENTRY_CENTS": 71,
         "ENTRY_WAIT_SECONDS":       240,
         "SCAN_WINDOW_SECONDS":      360,
@@ -163,7 +163,7 @@ PROFILES: dict[str, dict] = {
         "TRAILING_STOP_ACTIVATE":   10,
     },
     "conservative-69": {
-        "MOMENTUM_THRESHOLD_CENTS": 65,
+        "MOMENTUM_THRESHOLD_CENTS": 63,
         "MOMENTUM_MAX_ENTRY_CENTS": 69,
         "ENTRY_WAIT_SECONDS":       240,
         "SCAN_WINDOW_SECONDS":      360,
@@ -1405,12 +1405,16 @@ def markets():
                 series_threshold = max(MOMENTUM_THRESHOLD_CENTS, SERIES_THRESHOLD_OVERRIDE.get(series, 0))
                 signal = "YES" if ob.yes_bid >= series_threshold else "NO" if ob.no_bid >= series_threshold else "none"
                 liquid = vol >= MIN_KALSHI_VOLUME
+                # Estimate dollar volume: contracts × avg_price (midpoint in dollars)
+                mid_price = ((ob.yes_bid + ob.yes_ask) / 2) / 100.0 if ob.yes_bid and ob.yes_ask else 0.5
+                dollar_vol = round(vol * mid_price)
                 results.append({
                     "series": series,
                     "ticker": ticker,
                     "yes_bid": ob.yes_bid, "yes_ask": ob.yes_ask,
                     "no_bid": ob.no_bid,   "no_ask": ob.no_ask,
                     "volume_contracts": round(vol),
+                    "volume_dollars": dollar_vol,
                     "liquid_enough": liquid,
                     "signal": signal,
                     "live": is_live,
