@@ -846,100 +846,112 @@ def run_cycle(
 
     filled_side:  Optional[str] = None
     entry_cents:  Optional[int] = None
+    signal_ask:   int           = 0
 
-    # ---- Phase 2: dual resting limit orders at threshold ----
-    if not series_is_live:
-        # Paper mode: scan for whichever side hits threshold first
-        scan_deadline = time.time() + SCAN_WINDOW_SECONDS
-        while time.time() < scan_deadline:
-            time.sleep(ORDER_POLL_INTERVAL)
-            tte = expiry_ts - time.time()
-            if tte <= TIME_STOP_SECONDS + 30:
-                log.info(f"[{ticker}] Too late to enter (tte={tte:.0f}s) — no trade")
-                return
-            try:
-                ob = client.get_orderbook(ticker, expiry_ts)
-            except Exception as e:
-                log.warning(f"[{ticker}] Orderbook error: {e}")
-                continue
-            log.debug(f"[{ticker}] scan: yes_bid={ob.yes_bid} no_bid={ob.no_bid} tte={tte:.0f}s")
-            if ob.yes_bid >= threshold:
-                if not ext.confirm_entry(series, "yes", log):
-                    continue
-                filled_side = "yes"
-                entry_cents = threshold
-                log.info(f"[{ticker}] PAPER ENTRY: YES @ {entry_cents}c (threshold hit)")
-                break
-            elif ob.no_bid >= threshold:
-                if not ext.confirm_entry(series, "no", log):
-                    continue
-                filled_side = "no"
-                entry_cents = threshold
-                log.info(f"[{ticker}] PAPER ENTRY: NO @ {entry_cents}c (threshold hit)")
-                break
-        else:
-            log.info(f"[{ticker}] No signal in scan window — skipping")
+    # ---- Phase 2: scan for momentum signal ----
+    scan_deadline = time.time() + SCAN_WINDOW_SECONDS
+    while time.time() < scan_deadline:
+        time.sleep(ORDER_POLL_INTERVAL)
+        tte = expiry_ts - time.time()
+        if tte <= TIME_STOP_SECONDS + 30:
+            log.info(f"[{ticker}] Too late to enter (tte={tte:.0f}s) — no trade")
             return
+        try:
+            ob = client.get_orderbook(ticker, expiry_ts)
+        except Exception as e:
+            log.warning(f"[{ticker}] Orderbook error: {e}")
+            continue
+        log.debug(f"[{ticker}] scan: yes_bid={ob.yes_bid} no_bid={ob.no_bid} tte={tte:.0f}s")
+        if ob.yes_bid >= threshold:
+            ask = ob.yes_ask
+            if ask > MOMENTUM_MAX_ENTRY_CENTS:
+                log.debug(f"[{ticker}] YES signal but ask={ask}c > max {MOMENTUM_MAX_ENTRY_CENTS}c — skipping")
+                continue
+            if not ext.confirm_entry(series, "yes", log):
+                continue
+            filled_side = "yes"
+            signal_ask  = ask
+            break
+        elif ob.no_bid >= threshold:
+            ask = ob.no_ask
+            if ask > MOMENTUM_MAX_ENTRY_CENTS:
+                log.debug(f"[{ticker}] NO signal but ask={ask}c > max {MOMENTUM_MAX_ENTRY_CENTS}c — skipping")
+                continue
+            if not ext.confirm_entry(series, "no", log):
+                continue
+            filled_side = "no"
+            signal_ask  = ask
+            break
     else:
-        # Live mode: place YES and NO limit orders simultaneously at threshold
+        log.info(f"[{ticker}] No momentum signal in scan window — skipping")
+        return
+
+    # ---- Entry execution: limit order with market fallback ----
+    limit_price = signal_ask - 1
+
+    if not series_is_live:
+        entry_cents = limit_price
+        log.info(f"[{ticker}] PAPER ENTRY: {filled_side.upper()} @ {entry_cents}c (ask was {signal_ask}c)")
+    else:
         try:
             balance = client.get_balance()
-            if balance < threshold * CONTRACTS * 2:
-                log.warning(f"[{ticker}] Insufficient balance for dual orders: {balance}c — skipping")
+            if balance < limit_price * CONTRACTS:
+                log.warning(f"[{ticker}] Insufficient balance: {balance}c — skipping")
                 return
         except Exception as e:
             log.warning(f"[{ticker}] Balance check failed: {e} — skipping")
             return
 
-        yes_order_id = client.place_order(ticker, "yes", "limit", threshold)
-        no_order_id  = client.place_order(ticker, "no",  "limit", threshold)
-
-        if not yes_order_id or not no_order_id:
-            log.warning(f"[{ticker}] Failed to place dual limit orders — cancelling any partial")
-            if yes_order_id: client.cancel_order(yes_order_id)
-            if no_order_id:  client.cancel_order(no_order_id)
+        order_id = client.place_order(ticker, filled_side, "limit", limit_price)
+        if not order_id:
+            log.warning(f"[{ticker}] Limit order placement failed — skipping")
             return
+        log.info(f"[{ticker}] LIMIT ORDER: {filled_side.upper()} @ {limit_price}c  id={order_id}")
 
-        log.info(f"[{ticker}] DUAL LIMITS @ {threshold}c  yes={yes_order_id}  no={no_order_id}")
-
-        # Poll until one fills or scan window expires
-        scan_deadline = time.time() + SCAN_WINDOW_SECONDS
-        while time.time() < scan_deadline:
+        fill_deadline = time.time() + LIMIT_ORDER_TIMEOUT
+        while time.time() < fill_deadline:
             time.sleep(3)
-            tte = expiry_ts - time.time()
-            if tte <= TIME_STOP_SECONDS + 30:
-                log.info(f"[{ticker}] Too late to enter (tte={tte:.0f}s) — cancelling both")
-                client.cancel_order(yes_order_id)
-                client.cancel_order(no_order_id)
-                return
             try:
-                yes_status, yes_price = client.get_order_status(yes_order_id)
-                no_status,  no_price  = client.get_order_status(no_order_id)
+                status, filled_price = client.get_order_status(order_id)
             except Exception:
                 continue
-
-            if yes_status == "filled":
-                client.cancel_order(no_order_id)
-                filled_side = "yes"
-                entry_cents = yes_price
-                log.info(f"[{ticker}] YES limit FILLED @ {entry_cents}c — cancelled NO order")
+            if status == "filled":
+                entry_cents = filled_price
+                log.info(f"[{ticker}] Limit FILLED @ {entry_cents}c")
                 break
-            elif no_status == "filled":
-                client.cancel_order(yes_order_id)
-                filled_side = "no"
-                entry_cents = no_price
-                log.info(f"[{ticker}] NO limit FILLED @ {entry_cents}c — cancelled YES order")
-                break
-            elif yes_status in ("canceled", "error") and no_status in ("canceled", "error"):
-                log.warning(f"[{ticker}] Both orders cancelled/errored unexpectedly")
+            elif status in ("canceled", "error"):
+                log.warning(f"[{ticker}] Limit order {status} unexpectedly")
                 return
 
-        if filled_side is None:
-            # Scan window expired — cancel both
-            client.cancel_order(yes_order_id)
-            client.cancel_order(no_order_id)
-            log.info(f"[{ticker}] Scan window expired — cancelled both limit orders, no trade")
-            return
+        if entry_cents is None:
+            client.cancel_order(order_id)
+            log.info(f"[{ticker}] Limit not filled — checking edge for market fallback")
+            try:
+                ob2 = client.get_orderbook(ticker, expiry_ts)
+            except Exception:
+                return
+            cur_bid = ob2.yes_bid if filled_side == "yes" else ob2.no_bid
+            cur_ask = ob2.yes_ask if filled_side == "yes" else ob2.no_ask
+            if cur_bid >= threshold and cur_ask <= MOMENTUM_MAX_ENTRY_CENTS:
+                mkt_id = client.place_order(ticker, filled_side, "market", None)
+                if not mkt_id:
+                    return
+                log.info(f"[{ticker}] MARKET FALLBACK: {filled_side.upper()}  id={mkt_id}")
+                for _ in range(10):
+                    time.sleep(2)
+                    try:
+                        status, filled_price = client.get_order_status(mkt_id)
+                    except Exception:
+                        continue
+                    if status == "filled":
+                        entry_cents = filled_price
+                        log.info(f"[{ticker}] Market FILLED @ {entry_cents}c")
+                        break
+                if entry_cents is None:
+                    return
+            else:
+                log.info(f"[{ticker}] Edge gone — skipping")
+                return
 
     # ---- Phase 3: manage position ----
     if series_is_live:
