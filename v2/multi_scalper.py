@@ -1430,6 +1430,18 @@ def markets():
         return jsonify({"error": str(e)}), 500
 
 
+@_report_app.route("/debug/market")
+def debug_market():
+    if _report_auth is None:
+        return jsonify({"error": "auth not ready"}), 503
+    try:
+        client = KalshiClient(_report_auth)
+        mkts = client.get_open_markets("KXBTC15M", limit=1)
+        return jsonify(mkts[0] if mkts else {})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @_report_app.route("/status")
 def status():
     return jsonify({
