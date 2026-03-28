@@ -307,7 +307,7 @@ def tg_daily_summary(profile: str, trades: int, wins: int, pnl: int) -> None:
 # External confirmation filters
 PRICE_MOMENTUM_MIN_PCT   = 0.05  # require at least 0.05% price move in signal direction
 VOLUME_RATIO_MIN         = 1.2   # last candle volume must be 1.2x the recent average
-MIN_KALSHI_VOL_DOLLARS = 2000.0  # skip live trades if dollar volume < $2000 (matches Kalshi UI vol display)
+MIN_KALSHI_VOL_DOLLARS = 1000.0  # skip live trades if dollar volume < $1000 (matches Kalshi UI vol display)
 FUNDING_RATE_MAX         = 0.0010  # skip if funding rate strongly opposes direction (0.10%)
 FEAR_GREED_EXTREME       = 20    # skip if F&G < 20 (extreme fear) on YES, or > 80 on NO
 MIN_RR_RATIO             = 1.0   # minimum reward:risk ratio required to enter
