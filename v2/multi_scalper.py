@@ -307,6 +307,7 @@ def tg_daily_summary(profile: str, trades: int, wins: int, pnl: int) -> None:
 # External confirmation filters
 PRICE_MOMENTUM_MIN_PCT   = 0.05  # require at least 0.05% price move in signal direction
 VOLUME_RATIO_MIN         = 1.2   # last candle volume must be 1.2x the recent average
+MIN_KALSHI_LIQUIDITY_USD = 500.0 # skip if best bid depth < $500 (thin market protection)
 FUNDING_RATE_MAX         = 0.0010  # skip if funding rate strongly opposes direction (0.10%)
 FEAR_GREED_EXTREME       = 20    # skip if F&G < 20 (extreme fear) on YES, or > 80 on NO
 MIN_RR_RATIO             = 1.0   # minimum reward:risk ratio required to enter
@@ -489,6 +490,7 @@ class OrderBook:
     no_bid: int
     no_ask: int
     expiry_ts: float
+    best_bid_dollars: float = 0.0  # dollar size at best bid level
 
     @property
     def mid_yes(self) -> int:
@@ -540,11 +542,17 @@ class KalshiClient:
         yes_ask = 100 - no_bid
         no_ask  = 100 - yes_bid
 
+        # Dollar size at the best bid (YES or NO, whichever is larger)
+        yes_size = float(yes_bids[0][1]) if yes_bids and len(yes_bids[0]) > 1 else 0.0
+        no_size  = float(no_bids[0][1])  if no_bids  and len(no_bids[0])  > 1 else 0.0
+        best_bid_dollars = max(yes_size, no_size)
+
         return OrderBook(
             ticker=ticker,
             yes_bid=yes_bid, yes_ask=yes_ask,
             no_bid=no_bid,   no_ask=no_ask,
             expiry_ts=expiry_ts,
+            best_bid_dollars=best_bid_dollars,
         )
 
     def get_balance(self) -> int:
@@ -846,6 +854,11 @@ def run_cycle(
         )
 
         threshold = max(MOMENTUM_THRESHOLD_CENTS, SERIES_THRESHOLD_OVERRIDE.get(series, 0))
+
+        _is_live = LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)
+        if _is_live and ob.best_bid_dollars < MIN_KALSHI_LIQUIDITY_USD:
+            log.debug(f"[{ticker}] Skipping — thin market: ${ob.best_bid_dollars:.0f} < ${MIN_KALSHI_LIQUIDITY_USD:.0f} required")
+            continue
 
         if ob.yes_bid >= threshold:
             ask = ob.yes_ask
