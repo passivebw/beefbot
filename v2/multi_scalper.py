@@ -828,7 +828,7 @@ def run_cycle(
 
         yes_bid = ob.yes_bid or 0
         no_bid  = ob.no_bid  or 0
-        log.debug(f"[{ticker}] scan: yes_bid={yes_bid} no_bid={no_bid} tte={tte:.0f}s early={in_early_warning}")
+        log.info(f"[{ticker}] scan: yes_ask={yes_ask} no_ask={no_ask} threshold={threshold} tte={tte:.0f}s early={in_early_warning}")
 
         # Signal check: ask >= threshold means the crowd is paying threshold cents for that side.
         # At 50/50 market, ask ~51c. As momentum builds, ask rises (63c, 70c, etc).
@@ -1441,6 +1441,17 @@ def debug_market():
         client = KalshiClient(_report_auth)
         mkts = client.get_open_markets("KXBTC15M", limit=1)
         return jsonify(mkts[0] if mkts else {})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@_report_app.route("/logs")
+def logs():
+    log_file = f"/opt/kalshi-bot/logs/{ACTIVE_PROFILE}.log"
+    try:
+        with open(log_file) as f:
+            lines = f.readlines()
+        return jsonify({"lines": lines[-100:]})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
