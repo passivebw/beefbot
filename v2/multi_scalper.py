@@ -69,7 +69,7 @@ TIME_STOP_SECONDS        = 120  # exit at whatever price with 2 min left
 CONTRACTS                = 1
 
 MARKET_POLL_INTERVAL = 2   # seconds between contract detection polls
-ORDER_POLL_INTERVAL  = 5   # seconds between fill/exit checks
+ORDER_POLL_INTERVAL  = 1   # seconds between fill/exit checks
 SL_POLL_INTERVAL     = 1   # fast polling when near stop loss
 
 # ---------------------------------------------------------------------------
