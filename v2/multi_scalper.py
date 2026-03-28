@@ -696,33 +696,14 @@ class ExternalData:
     def confirm_entry(self, series: str, side: str, log: logging.LoggerAdapter) -> bool:
         """
         Returns True if external signals confirm the Kalshi momentum signal.
-        Checks: price momentum direction, funding rate, fear & greed.
+        Only checks funding rate — price momentum check removed as it lags
+        behind fast-moving Kalshi signals and blocks valid entries.
         """
         symbol = BINANCE_SYMBOL.get(series)
         if not symbol:
             return True  # no mapping = no filter
 
-        # 1. Price momentum + volume must confirm direction
-        pv = self.price_and_volume(symbol)
-        if pv is not None:
-            momentum = pv["momentum_pct"]
-            vol_ratio = pv["volume_ratio"]
-            up = momentum > PRICE_MOMENTUM_MIN_PCT
-            dn = momentum < -PRICE_MOMENTUM_MIN_PCT
-            if side == "yes" and not up:
-                log.info(f"CONFIRM FAIL: {symbol} momentum={momentum:+.3f}% vol={vol_ratio:.2f}x — need up for YES")
-                return False
-            if side == "no" and not dn:
-                log.info(f"CONFIRM FAIL: {symbol} momentum={momentum:+.3f}% vol={vol_ratio:.2f}x — need down for NO")
-                return False
-            if vol_ratio < VOLUME_RATIO_MIN:
-                log.info(f"CONFIRM FAIL: {symbol} volume={vol_ratio:.2f}x < {VOLUME_RATIO_MIN}x avg — low conviction")
-                return False
-            log.debug(f"CONFIRM OK: {symbol} momentum={momentum:+.3f}% vol={vol_ratio:.2f}x")
-        else:
-            log.debug(f"CONFIRM: {symbol} price/volume unavailable — skipping check")
-
-        # 2. Funding rate — skip if strongly opposing
+        # Funding rate — skip if strongly opposing (over-extended position)
         funding = self.funding_rate(symbol)
         if funding is not None:
             if side == "yes" and funding > FUNDING_RATE_MAX:
@@ -732,16 +713,6 @@ class ExternalData:
                 log.info(f"CONFIRM FAIL: {symbol} funding={funding:.4f} too negative for NO (over-extended short)")
                 return False
             log.debug(f"CONFIRM OK: {symbol} funding={funding:.4f}")
-
-        # 3. Fear & Greed extreme filter
-        fg = self.fear_greed()
-        if side == "yes" and fg < FEAR_GREED_EXTREME:
-            log.info(f"CONFIRM FAIL: Fear&Greed={fg} extreme fear — skip YES")
-            return False
-        if side == "no" and fg > (100 - FEAR_GREED_EXTREME):
-            log.info(f"CONFIRM FAIL: Fear&Greed={fg} extreme greed — skip NO")
-            return False
-        log.debug(f"CONFIRM OK: Fear&Greed={fg}")
 
         return True
 
