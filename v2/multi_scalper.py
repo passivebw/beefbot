@@ -906,33 +906,8 @@ def run_cycle(
 
         if entry_cents is None:
             client.cancel_order(order_id)
-            log.info(f"[{ticker}] Limit not filled — checking edge for market fallback")
-            try:
-                ob2 = client.get_orderbook(ticker, expiry_ts)
-            except Exception:
-                return False
-            cur_bid = ob2.yes_bid if filled_side == "yes" else ob2.no_bid
-            cur_ask = ob2.yes_ask if filled_side == "yes" else ob2.no_ask
-            if cur_bid >= threshold and cur_ask <= MOMENTUM_MAX_ENTRY_CENTS:
-                mkt_id = client.place_order(ticker, filled_side, "market", None)
-                if not mkt_id:
-                    return False
-                log.info(f"[{ticker}] MARKET FALLBACK: {filled_side.upper()}  id={mkt_id}")
-                for _ in range(10):
-                    time.sleep(2)
-                    try:
-                        status, filled_price = client.get_order_status(mkt_id)
-                    except Exception:
-                        continue
-                    if status == "filled":
-                        entry_cents = filled_price
-                        log.info(f"[{ticker}] Market FILLED @ {entry_cents}c")
-                        break
-                if entry_cents is None:
-                    return False
-            else:
-                log.info(f"[{ticker}] Edge gone — retrying scan")
-                return False
+            log.info(f"[{ticker}] Limit not filled in {LIMIT_ORDER_TIMEOUT}s — cancelling, skip to next contract")
+            return True
 
     # ---- Phase 3: manage position ----
     if series_is_live:
