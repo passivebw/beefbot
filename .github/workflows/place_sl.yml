@@ -1,0 +1,22 @@
+name: Place SL Orders (one-time)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  place-sl:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Copy and run SL script
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 143.198.172.60
+          username: root
+          key: ${{ secrets.BEEFBOT_SSH_KEY }}
+          script: |
+            cd /opt/kalshi-bot
+            git pull origin master -q
+            venv/bin/python3 tools/place_sl.py
