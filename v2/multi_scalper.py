@@ -567,7 +567,7 @@ class KalshiClient:
         action: str = "buy",
     ) -> Optional[str]:
         """Place a limit or market order. Returns order_id or None on failure."""
-        path = "/trade-api/v2/orders"
+        path = "/trade-api/v2/portfolio/orders"
         body: dict = {
             "ticker": ticker,
             "action": action,
@@ -581,7 +581,7 @@ class KalshiClient:
             else:
                 body["no_price"] = price_cents
         r = self._http.post(
-            KALSHI_BASE_URL + "/orders",
+            KALSHI_BASE_URL + "/portfolio/orders",
             headers=self._auth.headers("POST", path),
             json=body,
         )
@@ -591,9 +591,9 @@ class KalshiClient:
 
     def get_order_status(self, order_id: str) -> tuple[str, int]:
         """Return (status, filled_price_cents). Status: resting/filled/canceled."""
-        path = f"/trade-api/v2/orders/{order_id}"
+        path = f"/trade-api/v2/portfolio/orders/{order_id}"
         r = self._http.get(
-            KALSHI_BASE_URL + f"/orders/{order_id}",
+            KALSHI_BASE_URL + f"/portfolio/orders/{order_id}",
             headers=self._auth.headers("GET", path),
         )
         r.raise_for_status()
@@ -605,10 +605,10 @@ class KalshiClient:
 
     def cancel_order(self, order_id: str) -> bool:
         """Cancel a resting order. Returns True if successful."""
-        path = f"/trade-api/v2/orders/{order_id}"
+        path = f"/trade-api/v2/portfolio/orders/{order_id}"
         try:
             r = self._http.delete(
-                KALSHI_BASE_URL + f"/orders/{order_id}",
+                KALSHI_BASE_URL + f"/portfolio/orders/{order_id}",
                 headers=self._auth.headers("DELETE", path),
             )
             return r.status_code in (200, 204)
