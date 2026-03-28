@@ -55,7 +55,8 @@ NO_SL  = 50  # sell NO at 50c if position reverses
 
 print("Fetching open positions...")
 data = get('/portfolio/positions')
-positions = data.get('market_positions', [])
+print("RAW RESPONSE:", str(data)[:2000])
+positions = data.get('market_positions', data.get('positions', data.get('holdings', [])))
 
 active = [(p['market_id'], p['position']) for p in positions if p.get('position', 0) != 0]
 print(f"Found {len(active)} active positions:")

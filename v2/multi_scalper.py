@@ -1086,7 +1086,10 @@ def recover_open_position(client: KalshiClient, series: str, log: logging.Logger
             headers=client._auth.headers("GET", "/trade-api/v2/portfolio/positions"),
         )
         data.raise_for_status()
-        positions = data.json().get("market_positions", [])
+        raw = data.json()
+        log.info(f"Startup position API keys: {list(raw.keys())}")
+        positions = raw.get("market_positions", raw.get("positions", raw.get("holdings", [])))
+        log.info(f"Startup positions found: {len(positions)}")
     except Exception as e:
         log.warning(f"Startup position check failed: {e}")
         return
