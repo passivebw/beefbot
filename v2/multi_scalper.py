@@ -957,9 +957,6 @@ def run_cycle(
                     exit_reason = "stop_loss"
                     exit_cents  = sl_filled_price
                     sl_order_id = None
-                    if tp_order_id:
-                        client.cancel_order(tp_order_id)
-                        tp_order_id = None
                     log.info(f"[{ticker}] SL limit FILLED @ {exit_cents}c — {exit_reason}")
                     break
             except Exception:
