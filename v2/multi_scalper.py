@@ -1370,6 +1370,19 @@ def report():
     })
 
 
+@_report_app.route("/status")
+def status():
+    return jsonify({
+        "profile":     ACTIVE_PROFILE,
+        "live_mode":   LIVE_MODE,
+        "live_series": sorted(LIVE_SERIES) if LIVE_SERIES else "ALL",
+        "paper_series": [s for s in SERIES if s not in LIVE_SERIES] if LIVE_SERIES else [],
+        "threshold_cents": MOMENTUM_THRESHOLD_CENTS,
+        "max_entry_cents": MOMENTUM_MAX_ENTRY_CENTS,
+        "uptime_s":    int(time.time() - _bot_start_time),
+    })
+
+
 @_report_app.route("/history")
 def history():
     if not _check_api_key():
