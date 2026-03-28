@@ -78,8 +78,4 @@ else:
             print(f"\nPlacing SL: sell NO x{qty} @ {NO_SL}c on {ticker}")
             place_order(ticker, 'no', 'sell', NO_SL, qty)
 
-# EMERGENCY: also place SL directly on known open SOL YES contracts
-print("\nEmergency SL for known SOL YES positions...")
-place_order('KXSOL15M-26MAR281230-30', 'yes', 'sell', 50, 2)
-
 print("\nDone.")

@@ -791,6 +791,21 @@ def run_cycle(
     threshold = max(MOMENTUM_THRESHOLD_CENTS, SERIES_THRESHOLD_OVERRIDE.get(series, 0))
     series_is_live = LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)
 
+    # ---- Already have a position in this contract? Skip to avoid double entry ----
+    if series_is_live:
+        try:
+            r = client._http.get(
+                KALSHI_BASE_URL + "/portfolio/positions",
+                headers=client._auth.headers("GET", "/trade-api/v2/portfolio/positions"),
+            )
+            r.raise_for_status()
+            for p in r.json().get("market_positions", []):
+                if p.get("ticker", "") == ticker and int(p.get("position_fp", 0) or 0) != 0:
+                    log.warning(f"[{ticker}] Already hold position (position_fp={p.get('position_fp')}) — skipping entry")
+                    return True
+        except Exception as e:
+            log.warning(f"[{ticker}] Position check failed: {e}")
+
     # ---- Liquidity check: yes_ask + no_ask should be close to 100c ----
     if series_is_live:
         try:
