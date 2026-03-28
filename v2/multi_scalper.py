@@ -921,9 +921,8 @@ def run_cycle(
     exit_cents:  Optional[int] = None
     dynamic_sl  = STOP_LOSS_CENTS
     sl_order_id: Optional[str] = None  # resting limit SL order
-    tp_order_id: Optional[str] = None  # resting limit TP order
 
-    # ---- Place resting SL + TP limit orders immediately after entry ----
+    # ---- Place resting SL limit order immediately after entry ----
     if series_is_live:
         try:
             sl_order_id = client.place_order(ticker, filled_side, "limit", dynamic_sl, action="sell")
@@ -933,14 +932,6 @@ def run_cycle(
                 log.warning(f"[{ticker}] Failed to place resting SL")
         except Exception as e:
             log.warning(f"[{ticker}] SL order error: {e}")
-        try:
-            tp_order_id = client.place_order(ticker, filled_side, "limit", TAKE_PROFIT_CENTS, action="sell")
-            if tp_order_id:
-                log.info(f"[{ticker}] Resting TP limit @ {TAKE_PROFIT_CENTS}c  id={tp_order_id}")
-            else:
-                log.warning(f"[{ticker}] Failed to place resting TP")
-        except Exception as e:
-            log.warning(f"[{ticker}] TP order error: {e}")
 
     def _replace_sl(new_price: int) -> None:
         nonlocal sl_order_id
@@ -974,22 +965,6 @@ def run_cycle(
             except Exception:
                 pass
 
-        # Check if resting TP filled externally
-        if series_is_live and tp_order_id:
-            try:
-                tp_status, tp_filled_price = client.get_order_status(tp_order_id)
-                if tp_status == "filled":
-                    exit_reason = "take_profit"
-                    exit_cents  = tp_filled_price
-                    tp_order_id = None
-                    if sl_order_id:
-                        client.cancel_order(sl_order_id)
-                        sl_order_id = None
-                    log.info(f"[{ticker}] TP limit FILLED @ {exit_cents}c — {exit_reason}")
-                    break
-            except Exception:
-                pass
-
         try:
             ob = client.get_orderbook(ticker, expiry_ts)
         except Exception as e:
@@ -1014,10 +989,11 @@ def run_cycle(
             break
 
         if bid >= TAKE_PROFIT_CENTS:
+            locked_sl = bid - 3  # lock in profit 3c below current bid
             exit_reason = "take_profit"
-            exit_cents  = TAKE_PROFIT_CENTS - 1  # 1c under TP to ensure fill
-            log.info(f"[{ticker}] TAKE PROFIT hit — moving SL to {exit_cents}c")
-            _replace_sl(exit_cents)
+            exit_cents  = locked_sl
+            log.info(f"[{ticker}] TP hit bid={bid}c — cancelling SL, locking in @ {locked_sl}c")
+            _replace_sl(locked_sl)
             # Let the resting order collect the exit; monitor for fill
             for _ in range(30):
                 time.sleep(2)
