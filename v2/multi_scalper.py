@@ -585,7 +585,8 @@ class KalshiClient:
             headers=self._auth.headers("POST", path),
             json=body,
         )
-        r.raise_for_status()
+        if not r.is_success:
+            raise Exception(f"place_order {r.status_code}: {r.text[:500]}  body={body}")
         return r.json().get("order", {}).get("order_id")
 
     def get_order_status(self, order_id: str) -> tuple[str, int]:
