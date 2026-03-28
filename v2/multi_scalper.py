@@ -1076,6 +1076,39 @@ def run_cycle(
 # Per-series worker thread
 # ---------------------------------------------------------------------------
 
+def recover_open_position(client: KalshiClient, series: str, log: logging.LoggerAdapter) -> None:
+    """On startup, check Kalshi for any open position in this series and place SL if found."""
+    if not (LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)):
+        return
+    try:
+        data = client._http.get(
+            KALSHI_BASE_URL + "/portfolio/positions",
+            headers=client._auth.headers("GET", "/trade-api/v2/portfolio/positions"),
+        )
+        data.raise_for_status()
+        positions = data.json().get("market_positions", [])
+    except Exception as e:
+        log.warning(f"Startup position check failed: {e}")
+        return
+
+    for p in positions:
+        ticker = p.get("market_id", "")
+        qty    = p.get("position", 0)
+        if series not in ticker or qty == 0:
+            continue
+        side = "yes" if qty > 0 else "no"
+        qty  = abs(qty)
+        log.warning(f"[{ticker}] Found unmanaged {side.upper()} x{qty} position on startup — placing SL @ {STOP_LOSS_CENTS}c")
+        try:
+            sl_id = client.place_order(ticker, side, "limit", STOP_LOSS_CENTS, action="sell")
+            if sl_id:
+                log.info(f"[{ticker}] Startup SL placed @ {STOP_LOSS_CENTS}c  id={sl_id}")
+            else:
+                log.warning(f"[{ticker}] Startup SL placement failed")
+        except Exception as e:
+            log.warning(f"[{ticker}] Startup SL error: {e}")
+
+
 def series_worker(
     series: str,
     profile: str,
@@ -1089,6 +1122,7 @@ def series_worker(
     known_ticker: Optional[str] = None
 
     log.info(f"Worker started — series={series} profile={profile}")
+    recover_open_position(client, series, log)
 
     while not stop_event.is_set():
         try:
