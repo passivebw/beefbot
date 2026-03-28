@@ -307,7 +307,7 @@ def tg_daily_summary(profile: str, trades: int, wins: int, pnl: int) -> None:
 # External confirmation filters
 PRICE_MOMENTUM_MIN_PCT   = 0.05  # require at least 0.05% price move in signal direction
 VOLUME_RATIO_MIN         = 1.2   # last candle volume must be 1.2x the recent average
-MIN_KALSHI_VOL_DOLLARS = 1000.0  # skip live trades if dollar volume < $1000 (matches Kalshi UI vol display)
+MAX_SPREAD_CENTS = 5  # skip if yes spread (ask-bid) > 5c — wide spread = thin/no market
 FUNDING_RATE_MAX         = 0.0010  # skip if funding rate strongly opposes direction (0.10%)
 FEAR_GREED_EXTREME       = 20    # skip if F&G < 20 (extreme fear) on YES, or > 80 on NO
 MIN_RR_RATIO             = 1.0   # minimum reward:risk ratio required to enter
@@ -827,22 +827,17 @@ def run_cycle(
     threshold = max(MOMENTUM_THRESHOLD_CENTS, SERIES_THRESHOLD_OVERRIDE.get(series, 0))
     series_is_live = LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)
 
-    # ---- Liquidity check (refresh volume after wait — contract opens at 0) ----
+    # ---- Liquidity check: spread-based (tight spread = real market, wide = ghost) ----
     if series_is_live:
         try:
-            mkts = client.get_open_markets(series, limit=5)
-            fresh_vol = next(
-                (float(m.get("volume_fp", 0) or 0) for m in mkts if m.get("ticker") == ticker),
-                contract_volume,
-            )
+            ob_liq = client.get_orderbook(ticker, expiry_ts)
+            spread = ob_liq.yes_ask - ob_liq.yes_bid if ob_liq.yes_ask and ob_liq.yes_bid else 999
         except Exception:
-            fresh_vol = contract_volume
-        # Kalshi vol = contracts × $1 (max payout per contract) — matches UI display
-        fresh_dollar_vol = fresh_vol
-        if fresh_dollar_vol < MIN_KALSHI_VOL_DOLLARS:
-            log.info(f"[{ticker}] Thin market: ${fresh_dollar_vol:.0f} < ${MIN_KALSHI_VOL_DOLLARS:.0f} — skipping")
+            spread = 999
+        if spread > MAX_SPREAD_CENTS:
+            log.info(f"[{ticker}] Wide spread: {spread}c > {MAX_SPREAD_CENTS}c — skipping")
             return
-        log.info(f"[{ticker}] Liquidity OK: ${fresh_dollar_vol:.0f}")
+        log.info(f"[{ticker}] Liquidity OK: spread={spread}c")
 
     tte = expiry_ts - time.time()
     if tte <= TIME_STOP_SECONDS + 30:
@@ -1377,9 +1372,9 @@ def markets():
                 is_live = LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)
                 series_threshold = max(MOMENTUM_THRESHOLD_CENTS, SERIES_THRESHOLD_OVERRIDE.get(series, 0))
                 signal = "YES" if ob.yes_bid >= series_threshold else "NO" if ob.no_bid >= series_threshold else "none"
-                # Kalshi vol = contracts × $1 (max payout per contract) — matches UI display
                 dollar_vol = round(vol)
-                liquid = dollar_vol >= MIN_KALSHI_VOL_DOLLARS
+                spread = (ob.yes_ask - ob.yes_bid) if ob.yes_ask and ob.yes_bid else 999
+                liquid = spread <= MAX_SPREAD_CENTS
                 results.append({
                     "series": series,
                     "ticker": ticker,
@@ -1387,6 +1382,7 @@ def markets():
                     "no_bid": ob.no_bid,   "no_ask": ob.no_ask,
                     "volume_contracts": round(vol),
                     "volume_dollars": dollar_vol,
+                    "spread": spread,
                     "liquid_enough": liquid,
                     "signal": signal,
                     "live": is_live,
