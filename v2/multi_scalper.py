@@ -820,9 +820,17 @@ def run_cycle(
     signal_ask:   int           = 0
 
     # ---- Phase 2: scan for momentum signal ----
+    # Early-warning: when bid crosses (threshold - 8c), switch to 1s polling so
+    # we catch fast-moving markets before the ask blows past max_entry_cents.
+    # We do NOT pre-place orders at that point — the ask is still well below
+    # threshold and a limit buy at max_entry would fill immediately at the low ask.
+    EARLY_WARNING_OFFSET = 8   # cents below threshold to trigger fast polling
+    in_early_warning = False
+
     scan_deadline = time.time() + SCAN_WINDOW_SECONDS
     while time.time() < scan_deadline:
-        time.sleep(ORDER_POLL_INTERVAL)
+        poll_interval = 1 if in_early_warning else ORDER_POLL_INTERVAL
+        time.sleep(poll_interval)
         tte = expiry_ts - time.time()
         if tte <= TIME_STOP_SECONDS + 30:
             log.info(f"[{ticker}] Too late to enter (tte={tte:.0f}s) — no trade")
@@ -832,27 +840,33 @@ def run_cycle(
         except Exception as e:
             log.warning(f"[{ticker}] Orderbook error: {e}")
             continue
-        log.debug(f"[{ticker}] scan: yes_bid={ob.yes_bid} no_bid={ob.no_bid} tte={tte:.0f}s")
-        if ob.yes_bid >= threshold:
-            ask = ob.yes_ask
-            if ask > MOMENTUM_MAX_ENTRY_CENTS:
-                log.debug(f"[{ticker}] YES signal but ask={ask}c > max {MOMENTUM_MAX_ENTRY_CENTS}c — skipping")
-                continue
-            if not ext.confirm_entry(series, "yes", log):
-                continue
-            filled_side = "yes"
-            signal_ask  = ask
+
+        yes_bid = ob.yes_bid or 0
+        no_bid  = ob.no_bid  or 0
+        log.debug(f"[{ticker}] scan: yes_bid={yes_bid} no_bid={no_bid} tte={tte:.0f}s early={in_early_warning}")
+
+        # Regular threshold check
+        for side, bid, ask_val in [("yes", yes_bid, ob.yes_ask or 0), ("no", no_bid, ob.no_ask or 0)]:
+            if bid >= threshold:
+                if ask_val > MOMENTUM_MAX_ENTRY_CENTS:
+                    log.debug(f"[{ticker}] {side.upper()} signal but ask={ask_val}c > max {MOMENTUM_MAX_ENTRY_CENTS}c — skipping")
+                    continue
+                if not ext.confirm_entry(series, side, log):
+                    continue
+                filled_side = side
+                signal_ask  = ask_val
+                break
+        if filled_side:
             break
-        elif ob.no_bid >= threshold:
-            ask = ob.no_ask
-            if ask > MOMENTUM_MAX_ENTRY_CENTS:
-                log.debug(f"[{ticker}] NO signal but ask={ask}c > max {MOMENTUM_MAX_ENTRY_CENTS}c — skipping")
-                continue
-            if not ext.confirm_entry(series, "no", log):
-                continue
-            filled_side = "no"
-            signal_ask  = ask
-            break
+
+        # Early warning: bid crossed (threshold - 8c) — switch to 1s polling
+        warning_threshold = threshold - EARLY_WARNING_OFFSET
+        if not in_early_warning and (yes_bid >= warning_threshold or no_bid >= warning_threshold):
+            in_early_warning = True
+            log.info(f"[{ticker}] EARLY WARNING: bid={max(yes_bid, no_bid)}c >= {warning_threshold}c — switching to 1s polling")
+        elif in_early_warning and yes_bid < warning_threshold - 3 and no_bid < warning_threshold - 3:
+            in_early_warning = False
+            log.info(f"[{ticker}] Price retreated below warning — back to {ORDER_POLL_INTERVAL}s polling")
     else:
         log.info(f"[{ticker}] No momentum signal in scan window — skipping")
         return
