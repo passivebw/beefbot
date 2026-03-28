@@ -934,8 +934,7 @@ def run_cycle(
 
     exit_reason: Optional[str] = None
     exit_cents:  Optional[int] = None
-    dynamic_sl      = STOP_LOSS_CENTS
-    trailing_active = False
+    dynamic_sl  = STOP_LOSS_CENTS
     sl_order_id: Optional[str] = None  # resting limit SL order
 
     # ---- Place resting SL limit order immediately after entry ----
@@ -970,7 +969,7 @@ def run_cycle(
             try:
                 sl_status, sl_filled_price = client.get_order_status(sl_order_id)
                 if sl_status == "filled":
-                    exit_reason = "stop_loss" if not trailing_active else "trailing_stop"
+                    exit_reason = "stop_loss"
                     exit_cents  = sl_filled_price
                     sl_order_id = None
                     log.info(f"[{ticker}] SL limit FILLED @ {exit_cents}c — {exit_reason}")
@@ -989,22 +988,16 @@ def run_cycle(
         mid = current_mid(ob, filled_side)
         bid = ob.yes_bid if filled_side == "yes" else ob.no_bid
 
-        # Trailing stop: move SL to breakeven once up 8c
-        if not trailing_active and mid >= entry_cents + TRAILING_STOP_ACTIVATE:
-            trailing_active = True
-            dynamic_sl      = entry_cents
-            log.info(f"[{ticker}] TRAILING STOP activated — SL moving to breakeven {dynamic_sl}c")
-            _replace_sl(dynamic_sl)
-
         log.debug(f"[{ticker}] pos: side={filled_side} mid={mid}c bid={bid}c sl={dynamic_sl}c tte={tte:.0f}s")
 
         if tte <= TIME_STOP_SECONDS:
+            # Move SL up to bid-2c and let it ride — either resolves at 100c or SL catches a dip
+            tight_sl = max(bid - 2, dynamic_sl)
+            log.info(f"[{ticker}] TIME STOP  tte={tte:.0f}s — tightening SL to {tight_sl}c")
+            _replace_sl(tight_sl)
+            dynamic_sl  = tight_sl
             exit_reason = "time_stop"
-            exit_cents  = mid
-            log.info(f"[{ticker}] TIME STOP  tte={tte:.0f}s  exit@{exit_cents}c")
-            if sl_order_id:
-                client.cancel_order(sl_order_id)
-                sl_order_id = None
+            exit_cents  = tight_sl  # estimate; actual fill tracked via resting order
             break
 
         if bid >= TAKE_PROFIT_CENTS:
@@ -1032,9 +1025,9 @@ def run_cycle(
 
         if mid <= dynamic_sl and not series_is_live:
             # Paper mode only — live uses resting SL order
-            exit_reason = "stop_loss" if not trailing_active else "trailing_stop"
+            exit_reason = "stop_loss"
             exit_cents  = dynamic_sl
-            log.info(f"[{ticker}] {exit_reason.upper()}  mid={mid}c  exit@{exit_cents}c")
+            log.info(f"[{ticker}] STOP_LOSS  mid={mid}c  exit@{exit_cents}c")
             break
 
         if tte <= 0:
