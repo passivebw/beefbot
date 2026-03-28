@@ -1143,7 +1143,9 @@ def series_worker(
                 done = run_cycle(client, ext, conn, log, series, profile, ticker, expiry_ts, contract_volume, skip_wait=skip_wait)
             except Exception as e:
                 log.error(f"Cycle error: {e}", exc_info=True)
-                done = True  # don't retry on unexpected errors
+                done = False  # retry on unexpected errors (API glitches, etc)
+                skip_wait = True
+                time.sleep(3)
 
             if done:
                 # Trade completed or contract exhausted — wait for next contract
