@@ -827,10 +827,20 @@ def run_cycle(
     threshold = max(MOMENTUM_THRESHOLD_CENTS, SERIES_THRESHOLD_OVERRIDE.get(series, 0))
     series_is_live = LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)
 
-    # ---- Liquidity check ----
-    if series_is_live and contract_volume < MIN_KALSHI_VOLUME:
-        log.info(f"[{ticker}] Thin market: {contract_volume:.0f} contracts < {MIN_KALSHI_VOLUME:.0f} — skipping")
-        return
+    # ---- Liquidity check (refresh volume after wait — contract opens at 0) ----
+    if series_is_live:
+        try:
+            mkts = client.get_open_markets(series, limit=5)
+            fresh_vol = next(
+                (float(m.get("volume_fp", 0) or 0) for m in mkts if m.get("ticker") == ticker),
+                contract_volume,
+            )
+        except Exception:
+            fresh_vol = contract_volume
+        if fresh_vol < MIN_KALSHI_VOLUME:
+            log.info(f"[{ticker}] Thin market: {fresh_vol:.0f} contracts < {MIN_KALSHI_VOLUME:.0f} — skipping")
+            return
+        log.info(f"[{ticker}] Liquidity OK: {fresh_vol:.0f} contracts")
 
     tte = expiry_ts - time.time()
     if tte <= TIME_STOP_SECONDS + 30:
