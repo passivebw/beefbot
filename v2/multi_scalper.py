@@ -762,23 +762,30 @@ def run_cycle(
     ticker: str,
     expiry_ts: float,
     contract_volume: float = 0.0,
-) -> None:
-    """Momentum-follow cycle: wait 3 min, enter on strong directional signal."""
+    skip_wait: bool = False,
+) -> bool:
+    """Momentum-follow cycle: wait, enter on strong directional signal.
+    Returns True if trade completed or contract exhausted (sleep until next).
+    Returns False if entry attempt failed — caller should retry without sleeping.
+    """
 
     # Circuit breaker — skip new trades if daily loss limit hit
     if circuit_breaker_open():
         log.info(f"[{ticker}] Circuit breaker active — skipping (daily loss limit hit)")
-        return
+        return True
 
     tte = expiry_ts - time.time()
-    min_required = ENTRY_WAIT_SECONDS + 60 + TIME_STOP_SECONDS + 30
+    min_required = (0 if skip_wait else ENTRY_WAIT_SECONDS) + 60 + TIME_STOP_SECONDS + 30
     if tte < min_required:
         log.info(f"[{ticker}] Not enough time (tte={tte:.0f}s < {min_required}s) — skipping")
-        return
+        return True
 
     # ---- Phase 1: wait for direction to establish ----
-    log.info(f"[{ticker}] MOMENTUM mode — waiting {ENTRY_WAIT_SECONDS}s for direction...")
-    time.sleep(ENTRY_WAIT_SECONDS)
+    if not skip_wait:
+        log.info(f"[{ticker}] MOMENTUM mode — waiting {ENTRY_WAIT_SECONDS}s for direction...")
+        time.sleep(ENTRY_WAIT_SECONDS)
+    else:
+        log.info(f"[{ticker}] MOMENTUM mode — re-scanning (wait already done)")
 
     threshold = max(MOMENTUM_THRESHOLD_CENTS, SERIES_THRESHOLD_OVERRIDE.get(series, 0))
     series_is_live = LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)
@@ -792,13 +799,13 @@ def run_cycle(
             combined = 999
         if combined > 120:
             log.info(f"[{ticker}] Thin market: yes_ask+no_ask={combined}c > 120c — skipping")
-            return
+            return True
         log.info(f"[{ticker}] Liquidity OK: yes_ask+no_ask={combined}c")
 
     tte = expiry_ts - time.time()
     if tte <= TIME_STOP_SECONDS + 30:
         log.info(f"[{ticker}] Too late to enter after wait (tte={tte:.0f}s) — skipping")
-        return
+        return True
 
     filled_side:  Optional[str] = None
     entry_cents:  Optional[int] = None
@@ -819,7 +826,7 @@ def run_cycle(
         tte = expiry_ts - time.time()
         if tte <= TIME_STOP_SECONDS + 30:
             log.info(f"[{ticker}] Too late to enter (tte={tte:.0f}s) — no trade")
-            return
+            return True
         try:
             ob = client.get_orderbook(ticker, expiry_ts)
         except Exception as e:
@@ -857,7 +864,7 @@ def run_cycle(
             log.info(f"[{ticker}] Ask retreated — back to {ORDER_POLL_INTERVAL}s polling")
     else:
         log.info(f"[{ticker}] No momentum signal in scan window — skipping")
-        return
+        return True
 
     # ---- Entry execution: limit order with market fallback ----
     limit_price = signal_ask - 1
@@ -870,15 +877,15 @@ def run_cycle(
             balance = client.get_balance()
             if balance < limit_price * CONTRACTS:
                 log.warning(f"[{ticker}] Insufficient balance: {balance}c — skipping")
-                return
+                return True
         except Exception as e:
             log.warning(f"[{ticker}] Balance check failed: {e} — skipping")
-            return
+            return False
 
         order_id = client.place_order(ticker, filled_side, "limit", limit_price)
         if not order_id:
-            log.warning(f"[{ticker}] Limit order placement failed — skipping")
-            return
+            log.warning(f"[{ticker}] Limit order placement failed — retrying")
+            return False
         log.info(f"[{ticker}] LIMIT ORDER: {filled_side.upper()} @ {limit_price}c  id={order_id}")
 
         fill_deadline = time.time() + LIMIT_ORDER_TIMEOUT
@@ -893,8 +900,8 @@ def run_cycle(
                 log.info(f"[{ticker}] Limit FILLED @ {entry_cents}c")
                 break
             elif status in ("canceled", "error"):
-                log.warning(f"[{ticker}] Limit order {status} unexpectedly")
-                return
+                log.warning(f"[{ticker}] Limit order {status} unexpectedly — retrying")
+                return False
 
         if entry_cents is None:
             client.cancel_order(order_id)
@@ -902,13 +909,13 @@ def run_cycle(
             try:
                 ob2 = client.get_orderbook(ticker, expiry_ts)
             except Exception:
-                return
+                return False
             cur_bid = ob2.yes_bid if filled_side == "yes" else ob2.no_bid
             cur_ask = ob2.yes_ask if filled_side == "yes" else ob2.no_ask
             if cur_bid >= threshold and cur_ask <= MOMENTUM_MAX_ENTRY_CENTS:
                 mkt_id = client.place_order(ticker, filled_side, "market", None)
                 if not mkt_id:
-                    return
+                    return False
                 log.info(f"[{ticker}] MARKET FALLBACK: {filled_side.upper()}  id={mkt_id}")
                 for _ in range(10):
                     time.sleep(2)
@@ -921,10 +928,10 @@ def run_cycle(
                         log.info(f"[{ticker}] Market FILLED @ {entry_cents}c")
                         break
                 if entry_cents is None:
-                    return
+                    return False
             else:
-                log.info(f"[{ticker}] Edge gone — skipping")
-                return
+                log.info(f"[{ticker}] Edge gone — retrying scan")
+                return False
 
     # ---- Phase 3: manage position ----
     if series_is_live:
@@ -1086,6 +1093,7 @@ def run_cycle(
         f"exit={exit_cents}c  reason={exit_reason}  "
         f"PnL={sign}{pnl_cents}c / {sign}${pnl_usd:.4f}"
     )
+    return True
 
 # ---------------------------------------------------------------------------
 # Per-series worker thread
@@ -1128,15 +1136,24 @@ def series_worker(
 
         log.info(f"New contract: {ticker}  tte={tte:.0f}s  volume={contract_volume:.0f}")
         known_ticker = ticker
+        skip_wait = False
 
-        try:
-            run_cycle(client, ext, conn, log, series, profile, ticker, expiry_ts, contract_volume)
-        except Exception as e:
-            log.error(f"Cycle error: {e}", exc_info=True)
+        while not stop_event.is_set():
+            try:
+                done = run_cycle(client, ext, conn, log, series, profile, ticker, expiry_ts, contract_volume, skip_wait=skip_wait)
+            except Exception as e:
+                log.error(f"Cycle error: {e}", exc_info=True)
+                done = True  # don't retry on unexpected errors
 
-        # Sleep until next boundary
-        if not stop_event.is_set():
-            sleep_until_next_contract(log)
+            if done:
+                # Trade completed or contract exhausted — wait for next contract
+                if not stop_event.is_set():
+                    sleep_until_next_contract(log)
+                break
+            else:
+                # Entry attempt failed — re-scan immediately without the wait
+                log.info(f"[{ticker}] Entry failed — re-scanning same contract")
+                skip_wait = True
 
     client.close()
     ext.close()
