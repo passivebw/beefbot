@@ -837,12 +837,8 @@ def run_cycle(
             )
         except Exception:
             fresh_vol = contract_volume
-        try:
-            ob_liq = client.get_orderbook(ticker, expiry_ts)
-            mid_p = ((ob_liq.yes_bid + ob_liq.yes_ask) / 2) / 100.0 if ob_liq.yes_bid and ob_liq.yes_ask else 0.5
-        except Exception:
-            mid_p = 0.5
-        fresh_dollar_vol = fresh_vol * mid_p
+        # Kalshi vol = contracts × $1 (max payout per contract) — matches UI display
+        fresh_dollar_vol = fresh_vol
         if fresh_dollar_vol < MIN_KALSHI_VOL_DOLLARS:
             log.info(f"[{ticker}] Thin market: ${fresh_dollar_vol:.0f} < ${MIN_KALSHI_VOL_DOLLARS:.0f} — skipping")
             return
@@ -1381,9 +1377,8 @@ def markets():
                 is_live = LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)
                 series_threshold = max(MOMENTUM_THRESHOLD_CENTS, SERIES_THRESHOLD_OVERRIDE.get(series, 0))
                 signal = "YES" if ob.yes_bid >= series_threshold else "NO" if ob.no_bid >= series_threshold else "none"
-                # Estimate dollar volume: contracts × avg_price (midpoint in dollars)
-                mid_price = ((ob.yes_bid + ob.yes_ask) / 2) / 100.0 if ob.yes_bid and ob.yes_ask else 0.5
-                dollar_vol = round(vol * mid_price)
+                # Kalshi vol = contracts × $1 (max payout per contract) — matches UI display
+                dollar_vol = round(vol)
                 liquid = dollar_vol >= MIN_KALSHI_VOL_DOLLARS
                 results.append({
                     "series": series,
