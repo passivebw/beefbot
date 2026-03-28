@@ -307,7 +307,7 @@ def tg_daily_summary(profile: str, trades: int, wins: int, pnl: int) -> None:
 # External confirmation filters
 PRICE_MOMENTUM_MIN_PCT   = 0.05  # require at least 0.05% price move in signal direction
 VOLUME_RATIO_MIN         = 1.2   # last candle volume must be 1.2x the recent average
-MAX_SPREAD_CENTS = 5  # skip if yes spread (ask-bid) > 5c — wide spread = thin/no market
+MAX_SPREAD_CENTS = 20  # skip if yes_ask + no_ask > 120c — wide combined spread = thin market
 FUNDING_RATE_MAX         = 0.0010  # skip if funding rate strongly opposes direction (0.10%)
 FEAR_GREED_EXTREME       = 20    # skip if F&G < 20 (extreme fear) on YES, or > 80 on NO
 MIN_RR_RATIO             = 1.0   # minimum reward:risk ratio required to enter
@@ -798,17 +798,17 @@ def run_cycle(
     threshold = max(MOMENTUM_THRESHOLD_CENTS, SERIES_THRESHOLD_OVERRIDE.get(series, 0))
     series_is_live = LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)
 
-    # ---- Liquidity check: spread-based (tight spread = real market, wide = ghost) ----
+    # ---- Liquidity check: yes_ask + no_ask should be close to 100c ----
     if series_is_live:
         try:
             ob_liq = client.get_orderbook(ticker, expiry_ts)
-            spread = ob_liq.yes_ask - ob_liq.yes_bid if ob_liq.yes_ask and ob_liq.yes_bid else 999
+            combined = (ob_liq.yes_ask or 0) + (ob_liq.no_ask or 0)
         except Exception:
-            spread = 999
-        if spread > MAX_SPREAD_CENTS:
-            log.info(f"[{ticker}] Wide spread: {spread}c > {MAX_SPREAD_CENTS}c — skipping")
+            combined = 999
+        if combined > 120:
+            log.info(f"[{ticker}] Thin market: yes_ask+no_ask={combined}c > 120c — skipping")
             return
-        log.info(f"[{ticker}] Liquidity OK: spread={spread}c")
+        log.info(f"[{ticker}] Liquidity OK: yes_ask+no_ask={combined}c")
 
     tte = expiry_ts - time.time()
     if tte <= TIME_STOP_SECONDS + 30:
@@ -1413,8 +1413,8 @@ def markets():
                 series_threshold = max(MOMENTUM_THRESHOLD_CENTS, SERIES_THRESHOLD_OVERRIDE.get(series, 0))
                 signal = "YES" if ob.yes_bid >= series_threshold else "NO" if ob.no_bid >= series_threshold else "none"
                 dollar_vol = round(vol)
-                spread = (ob.yes_ask - ob.yes_bid) if ob.yes_ask and ob.yes_bid else 999
-                liquid = spread <= MAX_SPREAD_CENTS
+                combined = (ob.yes_ask or 0) + (ob.no_ask or 0)
+                liquid = combined <= 120
                 results.append({
                     "series": series,
                     "ticker": ticker,
@@ -1422,7 +1422,7 @@ def markets():
                     "no_bid": ob.no_bid,   "no_ask": ob.no_ask,
                     "volume_contracts": round(vol),
                     "volume_dollars": dollar_vol,
-                    "spread": spread,
+                    "combined_ask": combined,
                     "liquid_enough": liquid,
                     "signal": signal,
                     "live": is_live,
