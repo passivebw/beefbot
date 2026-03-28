@@ -1067,9 +1067,6 @@ def series_worker(
 
     log.info(f"Worker started — series={series} profile={profile}")
 
-    # Sleep until just before next 15-min boundary
-    sleep_until_next_contract(log)
-
     while not stop_event.is_set():
         try:
             result = find_next_contract(client, series)
