@@ -918,6 +918,17 @@ def run_cycle(
                 log.warning(f"[{ticker}] Limit order {status} unexpectedly — retrying")
                 return "retry"
 
+            # Cancel immediately if ask has blown past max entry — no point waiting
+            try:
+                ob_check = client.get_orderbook(ticker, expiry_ts)
+                current_ask = ob_check.yes_ask if filled_side == "yes" else ob_check.no_ask
+                if current_ask > MOMENTUM_MAX_ENTRY_CENTS:
+                    client.cancel_order(order_id)
+                    log.info(f"[{ticker}] Ask={current_ask}c > max {MOMENTUM_MAX_ENTRY_CENTS}c — cancelling limit order, moving to next window")
+                    return "no_entry"
+            except Exception:
+                pass
+
         if entry_cents is None:
             client.cancel_order(order_id)
             log.info(f"[{ticker}] Limit not filled in {LIMIT_ORDER_TIMEOUT}s — cancelling, skip to next contract")
