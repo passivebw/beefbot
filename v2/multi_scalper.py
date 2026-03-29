@@ -116,7 +116,7 @@ PROFILES: dict[str, dict] = {
     },
     "risky-0m": {
         "MOMENTUM_THRESHOLD_CENTS": 62,
-        "MOMENTUM_MAX_ENTRY_CENTS": 76,
+        "MOMENTUM_MAX_ENTRY_CENTS": 68,
         "ENTRY_WAIT_SECONDS":        0,
         "SCAN_WINDOW_SECONDS":      900,
         "TAKE_PROFIT_CENTS":        90,
@@ -134,7 +134,7 @@ PROFILES: dict[str, dict] = {
     },
     "risky-1m": {
         "MOMENTUM_THRESHOLD_CENTS": 62,
-        "MOMENTUM_MAX_ENTRY_CENTS": 76,
+        "MOMENTUM_MAX_ENTRY_CENTS": 68,
         "ENTRY_WAIT_SECONDS":        60,
         "SCAN_WINDOW_SECONDS":      900,
         "TAKE_PROFIT_CENTS":        90,
@@ -152,7 +152,7 @@ PROFILES: dict[str, dict] = {
     },
     "risky-2m": {
         "MOMENTUM_THRESHOLD_CENTS": 62,
-        "MOMENTUM_MAX_ENTRY_CENTS": 76,
+        "MOMENTUM_MAX_ENTRY_CENTS": 68,
         "ENTRY_WAIT_SECONDS":       120,
         "SCAN_WINDOW_SECONDS":      900,
         "TAKE_PROFIT_CENTS":        90,
