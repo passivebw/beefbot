@@ -182,7 +182,8 @@ PROFILES: dict[str, dict] = {
         "strategy":                       "bracket",
         "BRACKET_ENTRY_CENTS":            70,
         "BRACKET_TP_ALERT_CENTS":         90,
-        "BRACKET_SELL_CENTS":             87,
+        "BRACKET_SELL_CENTS":             87,    # fallback; dynamic sell = ask-3c at alert time
+        "BRACKET_SL_CENTS":               50,    # SL placed immediately on entry, cancelled at TP alert
         "BRACKET_WINDOW_START_SECONDS":    0,
         "BRACKET_WINDOW_DURATION_SECONDS": 300,
         "DAILY_LOSS_LIMIT_CENTS":        -500,
@@ -191,7 +192,8 @@ PROFILES: dict[str, dict] = {
         "strategy":                       "bracket",
         "BRACKET_ENTRY_CENTS":            70,
         "BRACKET_TP_ALERT_CENTS":         90,
-        "BRACKET_SELL_CENTS":             87,
+        "BRACKET_SELL_CENTS":             87,    # fallback; dynamic sell = ask-3c at alert time
+        "BRACKET_SL_CENTS":               50,    # SL placed immediately on entry, cancelled at TP alert
         "BRACKET_WINDOW_START_SECONDS":   420,   # start at 7 min from contract open
         "BRACKET_WINDOW_DURATION_SECONDS": 480,  # last 8 min of contract
         "DAILY_LOSS_LIMIT_CENTS":        -500,
@@ -1139,6 +1141,7 @@ def run_bracket_cycle(
     entry_c        = cfg["BRACKET_ENTRY_CENTS"]
     tp_alert_c     = cfg["BRACKET_TP_ALERT_CENTS"]
     sell_c         = cfg["BRACKET_SELL_CENTS"]
+    sl_c           = cfg.get("BRACKET_SL_CENTS", None)   # None = no SL
     win_start_off  = cfg["BRACKET_WINDOW_START_SECONDS"]
     win_duration   = cfg["BRACKET_WINDOW_DURATION_SECONDS"]
 
@@ -1206,10 +1209,13 @@ def run_bracket_cycle(
             break
 
         log.info(f"[{ticker}] Bracket FILL: {filled_side.upper()} @ {entry_filled}c (limit was {entry_c}c)")
+        if sl_c is not None:
+            log.info(f"[{ticker}] SL active @ {sl_c}c — will cancel on TP alert")
 
-        # ---- Phase 2: monitor bid for TP alert → place SELL limit ----
+        # ---- Phase 2: monitor bid for SL / TP alert → place SELL limit ----
         exit_cents:  int = 0
         exit_reason: str = "expired"
+        sl_active = sl_c is not None   # tracks whether SL is still live
 
         while True:
             try:
@@ -1221,20 +1227,31 @@ def run_bracket_cycle(
 
             tte = expiry_ts - time.time()
             bid = ob.yes_bid if filled_side == "yes" else ob.no_bid
+            mid = ob.mid_yes if filled_side == "yes" else (100 - ob.mid_yes)
+            ask = ob.yes_ask if filled_side == "yes" else ob.no_ask
+
+            # SL check (paper): mid drops to or below sl_c
+            if sl_active and mid <= sl_c:
+                exit_cents  = sl_c
+                exit_reason = "stop_loss"
+                log.info(f"[{ticker}] STOP_LOSS  mid={mid}c <= {sl_c}c — exit@{exit_cents}c")
+                break
 
             if bid >= tp_alert_c:
-                # TP alert fires — place SELL limit at sell_c.
-                # In paper: bid is already >= tp_alert_c >= sell_c so it fills immediately.
-                exit_cents  = sell_c
+                # TP alert fires:
+                #   1. Cancel the 50c SL (paper: just flag it off)
+                #   2. Place new SELL limit at (current ask - 3c)
+                sl_active   = False
+                dynamic_sell = max((ask - 3) if ask > 0 else sell_c, 1)
+                exit_cents  = dynamic_sell
                 exit_reason = "take_profit"
                 log.info(
                     f"[{ticker}] TP ALERT: bid={bid}c >= {tp_alert_c}c — "
-                    f"SELL limit placed @ {sell_c}c → filled"
+                    f"SL cancelled, SELL limit placed @ {dynamic_sell}c (ask={ask}c - 3c)"
                 )
                 break
 
             if tte <= 0:
-                mid = ob.mid_yes if filled_side == "yes" else (100 - ob.mid_yes)
                 exit_cents  = mid
                 exit_reason = "expired"
                 log.info(f"[{ticker}] EXPIRED  exit@{exit_cents}c")
