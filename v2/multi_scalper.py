@@ -1173,6 +1173,10 @@ def series_worker(
     log.info(f"Worker started — series={series} profile={profile}")
     recover_open_position(client, series, log)
 
+    # In-memory guard: tickers we've already entered (or attempted) this session.
+    # Prevents re-entry even if the Kalshi position check fails.
+    traded_tickers: set[str] = set()
+
     while not stop_event.is_set():
         try:
             result = find_next_contract(client, series)
@@ -1194,9 +1198,15 @@ def series_worker(
             time.sleep(MARKET_POLL_INTERVAL)
             continue
 
+        if ticker in traded_tickers:
+            log.warning(f"[{ticker}] Already traded this contract this session — skipping")
+            time.sleep(MARKET_POLL_INTERVAL)
+            continue
+
         log.info(f"New contract: {ticker}  tte={tte:.0f}s  volume={contract_volume:.0f}")
         known_ticker = ticker
         skip_wait = False
+        traded_tickers.add(ticker)
 
         while not stop_event.is_set():
             try:
