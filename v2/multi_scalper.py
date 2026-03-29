@@ -809,7 +809,7 @@ def run_cycle(
             )
             r.raise_for_status()
             for p in r.json().get("market_positions", []):
-                if p.get("ticker", "") == ticker and int(p.get("position_fp", 0) or 0) != 0:
+                if p.get("ticker", "") == ticker and int(float(p.get("position_fp", 0) or 0)) != 0:
                     log.warning(f"[{ticker}] Already hold position (position_fp={p.get('position_fp')}) — skipping entry")
                     return True
         except Exception as e:
@@ -942,8 +942,8 @@ def run_cycle(
 
         if entry_cents is None:
             client.cancel_order(order_id)
-            log.info(f"[{ticker}] Limit not filled in {LIMIT_ORDER_TIMEOUT}s — cancelling, re-scanning same contract")
-            return False
+            log.info(f"[{ticker}] Limit not filled in {LIMIT_ORDER_TIMEOUT}s — cancelling, skip to next contract")
+            return True
 
     # ---- Phase 3: manage position ----
     if series_is_live:
