@@ -943,7 +943,7 @@ def run_cycle(
 
     exit_reason: Optional[str] = None
     exit_cents:  Optional[int] = None
-    dynamic_sl  = max(entry_cents - SL_OFFSET_CENTS, 50)  # entry-12c, hard floor at 50c
+    dynamic_sl  = entry_cents - SL_OFFSET_CENTS  # SL = entry - 12c
     sl_order_id: Optional[str] = None  # resting limit SL order
     sl_cancelled_for_expiry = False    # True once we cancel SL near expiry to let contract settle
 
