@@ -943,7 +943,7 @@ def run_cycle(
 
     exit_reason: Optional[str] = None
     exit_cents:  Optional[int] = None
-    dynamic_sl  = max(entry_cents - SL_OFFSET_CENTS, STOP_LOSS_CENTS)
+    dynamic_sl  = STOP_LOSS_CENTS
     sl_order_id: Optional[str] = None  # resting limit SL order
 
     # ---- Place resting SL limit order immediately after entry ----
