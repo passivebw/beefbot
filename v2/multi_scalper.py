@@ -59,6 +59,7 @@ SERIES = [
 
 # Strategy parameters - Momentum Follow
 MOMENTUM_THRESHOLD_CENTS = 65   # raised from 60: require stronger conviction
+MOMENTUM_MIN_ENTRY_CENTS = 62   # skip if ask is below this (weak conviction)
 MOMENTUM_MAX_ENTRY_CENTS = 72   # skip if ask already above this (bad R/R)
 ENTRY_WAIT_SECONDS       = 180  # wait 3 min for direction to establish
 SCAN_WINDOW_SECONDS      = 900  # scan until time-stop kicks in (tte check inside loop)
@@ -80,7 +81,8 @@ SL_POLL_INTERVAL     = 1   # fast polling when near stop loss
 PROFILES: dict[str, dict] = {
     "conservative": {
         "MOMENTUM_THRESHOLD_CENTS": 62,
-        "MOMENTUM_MAX_ENTRY_CENTS": 80,
+        "MOMENTUM_MIN_ENTRY_CENTS": 62,
+        "MOMENTUM_MAX_ENTRY_CENTS": 72,
         "ENTRY_WAIT_SECONDS":        60,
         "SCAN_WINDOW_SECONDS":      900,
         "TAKE_PROFIT_CENTS":        82,
@@ -98,6 +100,7 @@ PROFILES: dict[str, dict] = {
     },
     "moderate": {
         "MOMENTUM_THRESHOLD_CENTS": 65,
+        "MOMENTUM_MIN_ENTRY_CENTS": 62,
         "MOMENTUM_MAX_ENTRY_CENTS": 72,
         "ENTRY_WAIT_SECONDS":       180,
         "SCAN_WINDOW_SECONDS":      900,
@@ -116,6 +119,7 @@ PROFILES: dict[str, dict] = {
     },
     "risky-0m": {
         "MOMENTUM_THRESHOLD_CENTS": 62,
+        "MOMENTUM_MIN_ENTRY_CENTS": 62,
         "MOMENTUM_MAX_ENTRY_CENTS": 68,
         "ENTRY_WAIT_SECONDS":        0,
         "SCAN_WINDOW_SECONDS":      900,
@@ -134,6 +138,7 @@ PROFILES: dict[str, dict] = {
     },
     "risky-1m": {
         "MOMENTUM_THRESHOLD_CENTS": 62,
+        "MOMENTUM_MIN_ENTRY_CENTS": 62,
         "MOMENTUM_MAX_ENTRY_CENTS": 68,
         "ENTRY_WAIT_SECONDS":        60,
         "SCAN_WINDOW_SECONDS":      900,
@@ -152,6 +157,7 @@ PROFILES: dict[str, dict] = {
     },
     "risky-2m": {
         "MOMENTUM_THRESHOLD_CENTS": 62,
+        "MOMENTUM_MIN_ENTRY_CENTS": 62,
         "MOMENTUM_MAX_ENTRY_CENTS": 68,
         "ENTRY_WAIT_SECONDS":       120,
         "SCAN_WINDOW_SECONDS":      900,
@@ -170,7 +176,8 @@ PROFILES: dict[str, dict] = {
     },
     "conservative-69": {
         "MOMENTUM_THRESHOLD_CENTS": 62,
-        "MOMENTUM_MAX_ENTRY_CENTS": 80,
+        "MOMENTUM_MIN_ENTRY_CENTS": 62,
+        "MOMENTUM_MAX_ENTRY_CENTS": 72,
         "ENTRY_WAIT_SECONDS":        60,
         "SCAN_WINDOW_SECONDS":      900,
         "TAKE_PROFIT_CENTS":        82,
@@ -188,6 +195,7 @@ PROFILES: dict[str, dict] = {
     },
     "moderate-rr12": {
         "MOMENTUM_THRESHOLD_CENTS": 65,
+        "MOMENTUM_MIN_ENTRY_CENTS": 62,
         "MOMENTUM_MAX_ENTRY_CENTS": 72,
         "ENTRY_WAIT_SECONDS":       180,
         "SCAN_WINDOW_SECONDS":      900,
@@ -871,6 +879,9 @@ def run_cycle(
             if ask_val == 0:
                 continue
             if ask_val >= threshold:
+                if ask_val < MOMENTUM_MIN_ENTRY_CENTS:
+                    log.debug(f"[{ticker}] {side.upper()} signal but ask={ask_val}c < min {MOMENTUM_MIN_ENTRY_CENTS}c — skipping")
+                    continue
                 if ask_val > MOMENTUM_MAX_ENTRY_CENTS:
                     log.debug(f"[{ticker}] {side.upper()} signal but ask={ask_val}c > max {MOMENTUM_MAX_ENTRY_CENTS}c — skipping")
                     continue
@@ -1617,7 +1628,7 @@ def start_report_server(conn: sqlite3.Connection, port: int, auth: KalshiAuth = 
 
 def main() -> None:
     global _root_log, ACTIVE_PROFILE
-    global MOMENTUM_THRESHOLD_CENTS, MOMENTUM_MAX_ENTRY_CENTS, ENTRY_WAIT_SECONDS
+    global MOMENTUM_THRESHOLD_CENTS, MOMENTUM_MIN_ENTRY_CENTS, MOMENTUM_MAX_ENTRY_CENTS, ENTRY_WAIT_SECONDS
     global SCAN_WINDOW_SECONDS, TAKE_PROFIT_CENTS, STOP_LOSS_CENTS, SL_ALERT_CENTS
     global TIME_STOP_SECONDS, PRICE_MOMENTUM_MIN_PCT, VOLUME_RATIO_MIN
     global FUNDING_RATE_MAX, FEAR_GREED_EXTREME, MIN_RR_RATIO
@@ -1648,6 +1659,7 @@ def main() -> None:
 
     # Apply profile params as module globals so all functions pick them up
     MOMENTUM_THRESHOLD_CENTS = profile_cfg["MOMENTUM_THRESHOLD_CENTS"]
+    MOMENTUM_MIN_ENTRY_CENTS = profile_cfg["MOMENTUM_MIN_ENTRY_CENTS"]
     MOMENTUM_MAX_ENTRY_CENTS = profile_cfg["MOMENTUM_MAX_ENTRY_CENTS"]
     ENTRY_WAIT_SECONDS       = profile_cfg["ENTRY_WAIT_SECONDS"]
     SCAN_WINDOW_SECONDS      = profile_cfg["SCAN_WINDOW_SECONDS"]
@@ -1694,7 +1706,7 @@ def main() -> None:
     elif LIVE_MODE:
         log.info(f"LIVE markets : ALL")
     log.info(f"Markets  : {', '.join(SERIES)}")
-    log.info(f"Signal   : bid >= {MOMENTUM_THRESHOLD_CENTS}c after {ENTRY_WAIT_SECONDS}s  max_entry={MOMENTUM_MAX_ENTRY_CENTS}c")
+    log.info(f"Signal   : bid >= {MOMENTUM_THRESHOLD_CENTS}c after {ENTRY_WAIT_SECONDS}s  entry_window={MOMENTUM_MIN_ENTRY_CENTS}–{MOMENTUM_MAX_ENTRY_CENTS}c")
     log.info(f"Exit     : TP={TAKE_PROFIT_CENTS}c  SL={STOP_LOSS_CENTS}c  TimeStop={TIME_STOP_SECONDS}s")
     log.info(f"Filters  : momentum>={PRICE_MOMENTUM_MIN_PCT}%  vol>={VOLUME_RATIO_MIN}x  funding<={FUNDING_RATE_MAX}")
     log.info(f"Risk     : daily_limit={DAILY_LOSS_LIMIT_CENTS}c  trailing_stop=+{TRAILING_STOP_ACTIVATE}c")
