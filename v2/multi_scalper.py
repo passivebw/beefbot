@@ -33,7 +33,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum, auto
 from pathlib import Path
 from typing import Optional
@@ -64,6 +64,7 @@ ENTRY_WAIT_SECONDS       = 180  # wait 3 min for direction to establish
 SCAN_WINDOW_SECONDS      = 900  # scan until time-stop kicks in (tte check inside loop)
 TAKE_PROFIT_CENTS        = 85   # exit when bid reaches this
 STOP_LOSS_CENTS          = 50   # exit if mid drops back to 50c
+SL_OFFSET_CENTS          = 12   # SL = entry - SL_OFFSET_CENTS (floored at STOP_LOSS_CENTS)
 SL_ALERT_CENTS           = 55   # switch to fast polling when mid drops here
 TIME_STOP_SECONDS        = 120  # exit at whatever price with 2 min left
 CONTRACTS                = 1
@@ -78,12 +79,13 @@ SL_POLL_INTERVAL     = 1   # fast polling when near stop loss
 
 PROFILES: dict[str, dict] = {
     "conservative": {
-        "MOMENTUM_THRESHOLD_CENTS": 58,
+        "MOMENTUM_THRESHOLD_CENTS": 62,
         "MOMENTUM_MAX_ENTRY_CENTS": 80,
         "ENTRY_WAIT_SECONDS":        60,
         "SCAN_WINDOW_SECONDS":      900,
-        "TAKE_PROFIT_CENTS":        90,
+        "TAKE_PROFIT_CENTS":        82,
         "STOP_LOSS_CENTS":          50,
+        "SL_OFFSET_CENTS":          12,
         "SL_ALERT_CENTS":           57,
         "TIME_STOP_SECONDS":        120,
         "PRICE_MOMENTUM_MIN_PCT":   0.10,
@@ -101,6 +103,7 @@ PROFILES: dict[str, dict] = {
         "SCAN_WINDOW_SECONDS":      900,
         "TAKE_PROFIT_CENTS":        85,
         "STOP_LOSS_CENTS":          50,
+        "SL_OFFSET_CENTS":          12,
         "SL_ALERT_CENTS":           55,
         "TIME_STOP_SECONDS":        120,
         "PRICE_MOMENTUM_MIN_PCT":   0.05,
@@ -118,6 +121,7 @@ PROFILES: dict[str, dict] = {
         "SCAN_WINDOW_SECONDS":      900,
         "TAKE_PROFIT_CENTS":        90,
         "STOP_LOSS_CENTS":          45,
+        "SL_OFFSET_CENTS":          15,
         "SL_ALERT_CENTS":           52,
         "TIME_STOP_SECONDS":        90,
         "PRICE_MOMENTUM_MIN_PCT":   0.02,
@@ -135,6 +139,7 @@ PROFILES: dict[str, dict] = {
         "SCAN_WINDOW_SECONDS":      900,
         "TAKE_PROFIT_CENTS":        90,
         "STOP_LOSS_CENTS":          45,
+        "SL_OFFSET_CENTS":          15,
         "SL_ALERT_CENTS":           52,
         "TIME_STOP_SECONDS":        90,
         "PRICE_MOMENTUM_MIN_PCT":   0.02,
@@ -152,6 +157,7 @@ PROFILES: dict[str, dict] = {
         "SCAN_WINDOW_SECONDS":      900,
         "TAKE_PROFIT_CENTS":        90,
         "STOP_LOSS_CENTS":          45,
+        "SL_OFFSET_CENTS":          15,
         "SL_ALERT_CENTS":           52,
         "TIME_STOP_SECONDS":        90,
         "PRICE_MOMENTUM_MIN_PCT":   0.02,
@@ -163,12 +169,13 @@ PROFILES: dict[str, dict] = {
         "TRAILING_STOP_ACTIVATE":   10,
     },
     "conservative-69": {
-        "MOMENTUM_THRESHOLD_CENTS": 58,
+        "MOMENTUM_THRESHOLD_CENTS": 62,
         "MOMENTUM_MAX_ENTRY_CENTS": 80,
         "ENTRY_WAIT_SECONDS":        60,
         "SCAN_WINDOW_SECONDS":      900,
-        "TAKE_PROFIT_CENTS":        90,
+        "TAKE_PROFIT_CENTS":        82,
         "STOP_LOSS_CENTS":          50,
+        "SL_OFFSET_CENTS":          12,
         "SL_ALERT_CENTS":           57,
         "TIME_STOP_SECONDS":        120,
         "PRICE_MOMENTUM_MIN_PCT":   0.10,
@@ -186,6 +193,7 @@ PROFILES: dict[str, dict] = {
         "SCAN_WINDOW_SECONDS":      900,
         "TAKE_PROFIT_CENTS":        85,
         "STOP_LOSS_CENTS":          50,
+        "SL_OFFSET_CENTS":          12,
         "SL_ALERT_CENTS":           55,
         "TIME_STOP_SECONDS":        120,
         "PRICE_MOMENTUM_MIN_PCT":   0.05,
@@ -205,9 +213,10 @@ ACTIVE_PROFILE = "moderate"
 # Circuit breaker — daily loss limit (shared across all worker threads)
 # ---------------------------------------------------------------------------
 
-_daily_pnl_lock  = threading.Lock()
-_daily_pnl_cents = 0          # running P&L for today (UTC)
-_daily_pnl_date  = ""         # date string "YYYY-MM-DD" — reset when day rolls over
+_daily_pnl_lock       = threading.Lock()
+_daily_pnl_cents      = 0    # running P&L for today (UTC)
+_daily_pnl_date       = ""   # date string "YYYY-MM-DD" — reset when day rolls over
+_cb_alerted_date      = ""   # date we last sent a circuit breaker Discord alert
 DAILY_LOSS_LIMIT_CENTS = -500  # overridden by profile at startup
 
 def _check_and_reset_daily() -> None:
@@ -934,7 +943,7 @@ def run_cycle(
 
     exit_reason: Optional[str] = None
     exit_cents:  Optional[int] = None
-    dynamic_sl  = max(entry_cents - 12, STOP_LOSS_CENTS)
+    dynamic_sl  = max(entry_cents - SL_OFFSET_CENTS, STOP_LOSS_CENTS)
     sl_order_id: Optional[str] = None  # resting limit SL order
 
     # ---- Place resting SL limit order immediately after entry ----
@@ -1077,8 +1086,15 @@ def run_cycle(
     with _daily_pnl_lock:
         daily_total = _daily_pnl_cents
     if circuit_breaker_open():
-        tg_circuit_breaker(profile, daily_total)
-        log.warning(f"CIRCUIT BREAKER: daily loss limit hit ({daily_total}c) — pausing new trades")
+        global _cb_alerted_date
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        with _daily_pnl_lock:
+            already_alerted = (_cb_alerted_date == today)
+            if not already_alerted:
+                _cb_alerted_date = today
+        if not already_alerted:
+            tg_circuit_breaker(profile, daily_total)
+            log.warning(f"CIRCUIT BREAKER: daily loss limit hit ({daily_total}c) — pausing new trades")
 
     log.info(
         f"[{ticker}] CLOSED  side={filled_side}  entry={entry_cents}c  "
@@ -1617,6 +1633,7 @@ def main() -> None:
     SCAN_WINDOW_SECONDS      = profile_cfg["SCAN_WINDOW_SECONDS"]
     TAKE_PROFIT_CENTS        = profile_cfg["TAKE_PROFIT_CENTS"]
     STOP_LOSS_CENTS          = profile_cfg["STOP_LOSS_CENTS"]
+    SL_OFFSET_CENTS          = profile_cfg["SL_OFFSET_CENTS"]
     SL_ALERT_CENTS           = profile_cfg["SL_ALERT_CENTS"]
     TIME_STOP_SECONDS        = profile_cfg["TIME_STOP_SECONDS"]
     PRICE_MOMENTUM_MIN_PCT   = profile_cfg["PRICE_MOMENTUM_MIN_PCT"]
