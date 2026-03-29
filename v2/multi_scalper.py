@@ -942,8 +942,8 @@ def run_cycle(
 
         if entry_cents is None:
             client.cancel_order(order_id)
-            log.info(f"[{ticker}] Limit not filled in {LIMIT_ORDER_TIMEOUT}s — cancelling, skip to next contract")
-            return True
+            log.info(f"[{ticker}] Limit not filled in {LIMIT_ORDER_TIMEOUT}s — cancelling, re-scanning same contract")
+            return False
 
     # ---- Phase 3: manage position ----
     if series_is_live:
@@ -957,6 +957,7 @@ def run_cycle(
     exit_cents:  Optional[int] = None
     dynamic_sl  = STOP_LOSS_CENTS
     sl_order_id: Optional[str] = None  # resting limit SL order
+    sl_cancelled_for_expiry = False    # True once we cancel SL near expiry to let contract settle
 
     # ---- Place resting SL limit order immediately after entry ----
     if series_is_live:
@@ -1011,15 +1012,17 @@ def run_cycle(
 
         log.debug(f"[{ticker}] pos: side={filled_side} mid={mid}c bid={bid}c sl={dynamic_sl}c tte={tte:.0f}s")
 
-        if tte <= TIME_STOP_SECONDS:
-            # Move SL up to bid-2c and let it ride — either resolves at 100c or SL catches a dip
-            tight_sl = max(bid - 2, dynamic_sl)
-            log.info(f"[{ticker}] TIME STOP  tte={tte:.0f}s — tightening SL to {tight_sl}c")
-            _replace_sl(tight_sl)
-            dynamic_sl  = tight_sl
-            exit_reason = "time_stop"
-            exit_cents  = tight_sl  # estimate; actual fill tracked via resting order
-            break
+        if tte <= TIME_STOP_SECONDS and not sl_cancelled_for_expiry:
+            # Let it ride to expiry — binary resolves at 0 or 100, no middle ground
+            # Cancel SL now so we don't get stopped out in the final seconds
+            if sl_order_id:
+                try:
+                    client.cancel_order(sl_order_id)
+                    sl_order_id = None
+                except Exception as e:
+                    log.warning(f"[{ticker}] Time stop SL cancel failed: {e}")
+            sl_cancelled_for_expiry = True
+            log.info(f"[{ticker}] TIME STOP  tte={tte:.0f}s — SL cancelled, letting contract expire")
 
         if bid >= TAKE_PROFIT_CENTS:
             locked_sl = bid - 3  # lock in profit 3c below current bid
