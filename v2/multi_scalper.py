@@ -608,6 +608,8 @@ class KalshiClient:
         r.raise_for_status()
         order = r.json().get("order", {})
         status = order.get("status", "error")
+        # Log raw status so we can verify Kalshi's exact status strings
+        _root_log.debug(f"get_order_status {order_id}: status={status} keys={list(order.keys())}")
         # Use yes_price for YES orders, no_price for NO orders
         filled_price = order.get("yes_price") or order.get("no_price") or 0
         return status, int(filled_price)
