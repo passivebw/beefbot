@@ -769,22 +769,25 @@ def run_cycle(
     expiry_ts: float,
     contract_volume: float = 0.0,
     skip_wait: bool = False,
-) -> bool:
+    scan_end_ts: Optional[float] = None,
+) -> str:
     """Momentum-follow cycle: wait, enter on strong directional signal.
-    Returns True if trade completed or contract exhausted (sleep until next).
-    Returns False if entry attempt failed — caller should retry without sleeping.
+    Returns:
+        "traded"   — trade was opened and closed (SL, TP, or expiry)
+        "no_entry" — no trade made (no signal, window expired, circuit breaker)
+        "retry"    — transient error, caller should retry immediately
     """
 
     # Circuit breaker — skip new trades if daily loss limit hit
     if circuit_breaker_open():
         log.info(f"[{ticker}] Circuit breaker active — skipping (daily loss limit hit)")
-        return True
+        return "no_entry"
 
     tte = expiry_ts - time.time()
     min_required = (0 if skip_wait else ENTRY_WAIT_SECONDS) + 60 + TIME_STOP_SECONDS + 30
     if tte < min_required:
         log.info(f"[{ticker}] Not enough time (tte={tte:.0f}s < {min_required}s) — skipping")
-        return True
+        return "no_entry"
 
     # ---- Phase 1: wait for direction to establish ----
     if not skip_wait:
@@ -796,21 +799,8 @@ def run_cycle(
     threshold = max(MOMENTUM_THRESHOLD_CENTS, SERIES_THRESHOLD_OVERRIDE.get(series, 0))
     series_is_live = LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)
 
-    # ---- Already have a position in this contract? Skip to avoid double entry ----
-    # Live: relies on traded_tickers (worker-level) + recover_open_position (startup).
-    # Paper: check DB for existing trade on this ticker+profile in last 15 min.
-    if not series_is_live:
-        # Paper mode: check DB for an existing trade on this ticker in this profile
-        try:
-            row = conn.execute(
-                "SELECT 1 FROM bracket_trade_log WHERE kalshi_ticker=? AND profile=? AND created_at >= datetime('now', '-15 minutes') LIMIT 1",
-                (ticker, profile),
-            ).fetchone()
-            if row:
-                log.warning(f"[{ticker}] Already traded this contract (paper) — skipping entry")
-                return True
-        except Exception as e:
-            log.warning(f"[{ticker}] Paper duplicate check failed: {e}")
+    # Note: duplicate entry prevention is handled by series_worker's synchronous
+    # 3-window flow. run_cycle no longer needs to check for prior trades.
 
     # ---- Liquidity check: yes_ask + no_ask should be close to 100c ----
     if series_is_live:
@@ -821,13 +811,13 @@ def run_cycle(
             combined = 999
         if combined > 120:
             log.info(f"[{ticker}] Thin market: yes_ask+no_ask={combined}c > 120c — skipping")
-            return True
+            return "no_entry"
         log.info(f"[{ticker}] Liquidity OK: yes_ask+no_ask={combined}c")
 
     tte = expiry_ts - time.time()
     if tte <= TIME_STOP_SECONDS + 30:
         log.info(f"[{ticker}] Too late to enter after wait (tte={tte:.0f}s) — skipping")
-        return True
+        return "no_entry"
 
     filled_side:  Optional[str] = None
     entry_cents:  Optional[int] = None
@@ -841,14 +831,14 @@ def run_cycle(
     EARLY_WARNING_OFFSET = 8   # cents below threshold to trigger fast polling
     in_early_warning = False
 
-    scan_deadline = time.time() + SCAN_WINDOW_SECONDS
+    scan_deadline = scan_end_ts if scan_end_ts is not None else (time.time() + SCAN_WINDOW_SECONDS)
     while time.time() < scan_deadline:
         poll_interval = 1 if in_early_warning else ORDER_POLL_INTERVAL
         time.sleep(poll_interval)
         tte = expiry_ts - time.time()
         if tte <= TIME_STOP_SECONDS + 30:
             log.info(f"[{ticker}] Too late to enter (tte={tte:.0f}s) — no trade")
-            return True
+            return "no_entry"
         try:
             ob = client.get_orderbook(ticker, expiry_ts)
         except Exception as e:
@@ -888,8 +878,8 @@ def run_cycle(
             in_early_warning = False
             log.info(f"[{ticker}] Ask retreated — back to {ORDER_POLL_INTERVAL}s polling")
     else:
-        log.info(f"[{ticker}] No momentum signal in scan window — skipping")
-        return True
+        log.info(f"[{ticker}] No momentum signal in scan window — no entry")
+        return "no_entry"
 
     # ---- Entry execution: limit order with market fallback ----
     limit_price = signal_ask - 1
@@ -902,15 +892,15 @@ def run_cycle(
             balance = client.get_balance()
             if balance < limit_price * CONTRACTS:
                 log.warning(f"[{ticker}] Insufficient balance: {balance}c — skipping")
-                return True
+                return "no_entry"
         except Exception as e:
             log.warning(f"[{ticker}] Balance check failed: {e} — skipping")
-            return False
+            return "retry"
 
         order_id = client.place_order(ticker, filled_side, "limit", limit_price)
         if not order_id:
             log.warning(f"[{ticker}] Limit order placement failed — retrying")
-            return False
+            return "retry"
         log.info(f"[{ticker}] LIMIT ORDER: {filled_side.upper()} @ {limit_price}c  id={order_id}")
 
         fill_deadline = time.time() + LIMIT_ORDER_TIMEOUT
@@ -926,12 +916,12 @@ def run_cycle(
                 break
             elif status in ("canceled", "error"):
                 log.warning(f"[{ticker}] Limit order {status} unexpectedly — retrying")
-                return False
+                return "retry"
 
         if entry_cents is None:
             client.cancel_order(order_id)
             log.info(f"[{ticker}] Limit not filled in {LIMIT_ORDER_TIMEOUT}s — cancelling, skip to next contract")
-            return True
+            return "no_entry"
 
     # ---- Phase 3: manage position ----
     if series_is_live:
@@ -1104,7 +1094,7 @@ def run_cycle(
         f"exit={exit_cents}c  reason={exit_reason}  "
         f"PnL={sign}{pnl_cents}c / {sign}${pnl_usd:.4f}"
     )
-    return True
+    return "traded"
 
 # ---------------------------------------------------------------------------
 # Bracket strategy (risky-low / risky-mid / risky-high-early / risky-high-late)
@@ -1376,8 +1366,6 @@ def series_worker(
 
         log.info(f"New contract: {ticker}  tte={tte:.0f}s  volume={contract_volume:.0f}")
         known_ticker = ticker
-        skip_wait = False
-        traded_tickers.add(ticker)
 
         # Bracket profiles use their own cycle function
         if profile in BRACKET_PROFILE_NAMES:
@@ -1389,24 +1377,72 @@ def series_worker(
                 sleep_until_next_contract(log)
             continue
 
-        while not stop_event.is_set():
-            try:
-                done = run_cycle(client, ext, conn, log, series, profile, ticker, expiry_ts, contract_volume, skip_wait=skip_wait)
-            except Exception as e:
-                log.error(f"Cycle error: {e}", exc_info=True)
-                done = False  # retry on unexpected errors (API glitches, etc)
-                skip_wait = True
-                time.sleep(3)
+        # Momentum profiles: 3-window entry system
+        # Window 1: after ENTRY_WAIT_SECONDS, scan until 5-min mark
+        # Window 2: spot check at 5-min mark (scan ~60s)
+        # Window 3: spot check at 10-min mark / last 5 min (scan ~60s)
+        # Re-entry is allowed in later windows if a prior trade already closed.
+        contract_open_ts = expiry_ts - 900
+        w1_start_ts = contract_open_ts + ENTRY_WAIT_SECONDS
+        w2_ts       = contract_open_ts + 300   # 5 min in
+        w3_ts       = contract_open_ts + 600   # 10 min in (last 5 min)
 
-            if done:
-                # Trade completed or contract exhausted — wait for next contract
-                if not stop_event.is_set():
-                    sleep_until_next_contract(log)
+        windows = [
+            (1, w1_start_ts, w2_ts,        False),  # (window#, start, scan_end, spot_check)
+            (2, w2_ts,       w2_ts + 60,   True),
+            (3, w3_ts,       w3_ts + 60,   True),
+        ]
+
+        for win_num, win_start, scan_end, spot_check in windows:
+            if stop_event.is_set():
                 break
-            else:
-                # Entry attempt failed — re-scan immediately without the wait
-                log.info(f"[{ticker}] Entry failed — re-scanning same contract")
-                skip_wait = True
+
+            # Skip window if not enough time left
+            tte_now = expiry_ts - time.time()
+            if tte_now < TIME_STOP_SECONDS + 60:
+                log.info(f"[{ticker}] Not enough time for window {win_num} — done with contract")
+                break
+
+            # Sleep until window opens
+            wait_s = win_start - time.time()
+            if wait_s > 0:
+                log.info(f"[{ticker}] Window {win_num} opens in {wait_s:.0f}s — waiting")
+                time.sleep(wait_s)
+
+            if circuit_breaker_open():
+                log.info(f"[{ticker}] Circuit breaker — skipping remaining windows")
+                break
+
+            log.info(f"[{ticker}] Window {win_num} {'spot check' if spot_check else 'scan'} starting")
+
+            # Retry loop within each window (handles transient API errors)
+            while not stop_event.is_set():
+                try:
+                    status = run_cycle(
+                        client, ext, conn, log, series, profile,
+                        ticker, expiry_ts, contract_volume,
+                        skip_wait=True,          # timing managed here in series_worker
+                        scan_end_ts=scan_end,
+                    )
+                except Exception as e:
+                    log.error(f"Cycle error (window {win_num}): {e}", exc_info=True)
+                    status = "retry"
+                    time.sleep(3)
+
+                if status == "traded":
+                    log.info(f"[{ticker}] Window {win_num}: trade closed — next window eligible for re-entry")
+                    break  # move to next window
+                elif status == "no_entry":
+                    log.info(f"[{ticker}] Window {win_num}: no entry — moving to next window")
+                    break  # move to next window
+                elif status == "retry":
+                    log.info(f"[{ticker}] Window {win_num}: transient error — retrying within window")
+                    # Only retry if scan window hasn't expired
+                    if time.time() >= scan_end:
+                        break
+
+        if not stop_event.is_set():
+            sleep_until_next_contract(log)
 
     client.close()
     ext.close()
