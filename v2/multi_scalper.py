@@ -801,20 +801,9 @@ def run_cycle(
     series_is_live = LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)
 
     # ---- Already have a position in this contract? Skip to avoid double entry ----
-    if series_is_live:
-        try:
-            r = client._http.get(
-                KALSHI_BASE_URL + "/portfolio/positions",
-                headers=client._auth.headers("GET", "/trade-api/v2/portfolio/positions"),
-            )
-            r.raise_for_status()
-            for p in r.json().get("market_positions", []):
-                if p.get("ticker", "") == ticker and int(float(p.get("position_fp", 0) or 0)) != 0:
-                    log.warning(f"[{ticker}] Already hold position (position_fp={p.get('position_fp')}) — skipping entry")
-                    return True
-        except Exception as e:
-            log.warning(f"[{ticker}] Position check failed: {e}")
-    else:
+    # Live: relies on traded_tickers (worker-level) + recover_open_position (startup).
+    # Paper: check DB for existing trade on this ticker+profile in last 15 min.
+    if not series_is_live:
         # Paper mode: check DB for an existing trade on this ticker in this profile
         try:
             row = conn.execute(
@@ -1122,10 +1111,12 @@ def run_cycle(
 # Per-series worker thread
 # ---------------------------------------------------------------------------
 
-def recover_open_position(client: KalshiClient, series: str, log: logging.LoggerAdapter) -> None:
-    """On startup, check Kalshi for any open position in this series and place SL if found."""
+def recover_open_position(client: KalshiClient, series: str, log: logging.LoggerAdapter) -> set:
+    """On startup, check Kalshi for any open position in this series and place SL if found.
+    Returns set of tickers with active positions so worker can add them to traded_tickers."""
+    recovered: set[str] = set()
     if not (LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)):
-        return
+        return recovered
     try:
         data = client._http.get(
             KALSHI_BASE_URL + "/portfolio/positions",
@@ -1138,16 +1129,17 @@ def recover_open_position(client: KalshiClient, series: str, log: logging.Logger
         log.info(f"Startup positions found: {len(positions)}")
     except Exception as e:
         log.warning(f"Startup position check failed: {e}")
-        return
+        return recovered
 
     for p in positions:
         ticker = p.get("ticker", "")
-        qty    = int(p.get("position_fp", 0) or 0)
+        qty    = int(float(p.get("position_fp", 0) or 0))
         if series not in ticker or qty == 0:
             continue
         side = "yes" if qty > 0 else "no"
         qty  = abs(qty)
         log.warning(f"[{ticker}] Found unmanaged {side.upper()} x{qty} position on startup — placing SL @ {STOP_LOSS_CENTS}c")
+        recovered.add(ticker)
         try:
             sl_id = client.place_order(ticker, side, "limit", STOP_LOSS_CENTS, action="sell")
             if sl_id:
@@ -1156,6 +1148,7 @@ def recover_open_position(client: KalshiClient, series: str, log: logging.Logger
                 log.warning(f"[{ticker}] Startup SL placement failed")
         except Exception as e:
             log.warning(f"[{ticker}] Startup SL error: {e}")
+    return recovered
 
 
 def series_worker(
@@ -1171,11 +1164,11 @@ def series_worker(
     known_ticker: Optional[str] = None
 
     log.info(f"Worker started — series={series} profile={profile}")
-    recover_open_position(client, series, log)
 
     # In-memory guard: tickers we've already entered (or attempted) this session.
     # Prevents re-entry even if the Kalshi position check fails.
-    traded_tickers: set[str] = set()
+    # Seeded with any positions recovered on startup so restarts don't double-enter.
+    traded_tickers: set[str] = recover_open_position(client, series, log)
 
     while not stop_event.is_set():
         try:
