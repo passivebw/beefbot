@@ -25,36 +25,47 @@ jobs:
             # Write Discord webhook to .env if not already present
             sed -i '/^DISCORD_WEBHOOK_URL=/d' .env 2>/dev/null; echo 'DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/1486535589980541040/RI-QVhCh36cRPkQSq5bAXMMRlgAbTt_xNeH5hJ-q9XeUCOVBRTeVu308eD0eKhS3Ep0G' >> .env
 
-            # Stop old services
+            # Stop old services (clean up removed profiles)
             systemctl stop kalshi-bot 2>/dev/null || true
             systemctl disable kalshi-bot 2>/dev/null || true
             systemctl stop kalshi-bot-risky 2>/dev/null || true
             systemctl disable kalshi-bot-risky 2>/dev/null || true
+            systemctl stop kalshi-bot-risky-0m 2>/dev/null || true
+            systemctl disable kalshi-bot-risky-0m 2>/dev/null || true
+            systemctl stop kalshi-bot-risky-1m 2>/dev/null || true
+            systemctl disable kalshi-bot-risky-1m 2>/dev/null || true
+            systemctl stop kalshi-bot-risky-2m 2>/dev/null || true
+            systemctl disable kalshi-bot-risky-2m 2>/dev/null || true
+            systemctl stop kalshi-bot-conservative-69 2>/dev/null || true
+            systemctl disable kalshi-bot-conservative-69 2>/dev/null || true
+
+            # moderate - port 8000 - PAPER ONLY
+            printf '[Unit]\nDescription=Kalshi Bot (moderate) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile moderate --port 8000\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/moderate.log\nStandardError=append:/opt/kalshi-bot/logs/moderate.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-moderate.service
 
             # conservative - port 8001 - PAPER ONLY
             printf '[Unit]\nDescription=Kalshi Bot (conservative) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile conservative --port 8001\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/conservative.log\nStandardError=append:/opt/kalshi-bot/logs/conservative.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-conservative.service
 
-            # moderate - port 8000 - PAPER ONLY
-            printf '[Unit]\nDescription=Kalshi Bot (moderate)\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile moderate --port 8000\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/moderate.log\nStandardError=append:/opt/kalshi-bot/logs/moderate.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-moderate.service
+            # moderate-rr12 - port 8002 - PAPER ONLY
+            printf '[Unit]\nDescription=Kalshi Bot (moderate-rr12) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile moderate-rr12 --port 8002\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/moderate-rr12.log\nStandardError=append:/opt/kalshi-bot/logs/moderate-rr12.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-moderate-rr12.service
 
-            # risky-0m - port 8002 - PAPER ONLY
-            printf '[Unit]\nDescription=Kalshi Bot (risky-0m) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile risky-0m --port 8002\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/risky-0m.log\nStandardError=append:/opt/kalshi-bot/logs/risky-0m.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-risky-0m.service
+            # og-risky - port 8003 - PAPER ONLY
+            printf '[Unit]\nDescription=Kalshi Bot (og-risky) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile og-risky --port 8003\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/og-risky.log\nStandardError=append:/opt/kalshi-bot/logs/og-risky.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-og-risky.service
 
-            # risky-1m - port 8003 - PAPER ONLY
-            printf '[Unit]\nDescription=Kalshi Bot (risky-1m) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile risky-1m --port 8003\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/risky-1m.log\nStandardError=append:/opt/kalshi-bot/logs/risky-1m.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-risky-1m.service
+            # risky-low - port 8004 - PAPER ONLY
+            printf '[Unit]\nDescription=Kalshi Bot (risky-low) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile risky-low --port 8004\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/risky-low.log\nStandardError=append:/opt/kalshi-bot/logs/risky-low.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-risky-low.service
 
-            # risky-2m - port 8004 - PAPER ONLY
-            printf '[Unit]\nDescription=Kalshi Bot (risky-2m) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile risky-2m --port 8004\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/risky-2m.log\nStandardError=append:/opt/kalshi-bot/logs/risky-2m.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-risky-2m.service
+            # risky-mid - port 8005 - PAPER ONLY
+            printf '[Unit]\nDescription=Kalshi Bot (risky-mid) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile risky-mid --port 8005\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/risky-mid.log\nStandardError=append:/opt/kalshi-bot/logs/risky-mid.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-risky-mid.service
 
-            # conservative-69 - port 8005 - PAPER ONLY
-            printf '[Unit]\nDescription=Kalshi Bot (conservative-69) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile conservative-69 --port 8005\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/conservative-69.log\nStandardError=append:/opt/kalshi-bot/logs/conservative-69.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-conservative-69.service
+            # risky-high-early - port 8006 - PAPER ONLY
+            printf '[Unit]\nDescription=Kalshi Bot (risky-high-early) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile risky-high-early --port 8006\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/risky-high-early.log\nStandardError=append:/opt/kalshi-bot/logs/risky-high-early.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-risky-high-early.service
 
-            # moderate-rr12 - port 8006 - PAPER ONLY
-            printf '[Unit]\nDescription=Kalshi Bot (moderate-rr12)\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile moderate-rr12 --port 8006\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/moderate-rr12.log\nStandardError=append:/opt/kalshi-bot/logs/moderate-rr12.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-moderate-rr12.service
+            # risky-high-late - port 8007 - PAPER ONLY
+            printf '[Unit]\nDescription=Kalshi Bot (risky-high-late) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile risky-high-late --port 8007\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/risky-high-late.log\nStandardError=append:/opt/kalshi-bot/logs/risky-high-late.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-risky-high-late.service
 
             systemctl daemon-reload
-            systemctl enable kalshi-bot-conservative kalshi-bot-moderate kalshi-bot-risky-0m kalshi-bot-risky-1m kalshi-bot-risky-2m kalshi-bot-conservative-69 kalshi-bot-moderate-rr12
-            systemctl restart kalshi-bot-conservative kalshi-bot-moderate kalshi-bot-risky-0m kalshi-bot-risky-1m kalshi-bot-risky-2m kalshi-bot-conservative-69 kalshi-bot-moderate-rr12
+            systemctl enable kalshi-bot-moderate kalshi-bot-conservative kalshi-bot-moderate-rr12 kalshi-bot-og-risky kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-risky-high-early kalshi-bot-risky-high-late
+            systemctl restart kalshi-bot-moderate kalshi-bot-conservative kalshi-bot-moderate-rr12 kalshi-bot-og-risky kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-risky-high-early kalshi-bot-risky-high-late
 
             echo "Deploy complete: $(date)"
-            systemctl is-active kalshi-bot-conservative kalshi-bot-moderate kalshi-bot-risky-0m kalshi-bot-risky-1m kalshi-bot-risky-2m kalshi-bot-conservative-69 kalshi-bot-moderate-rr12
+            systemctl is-active kalshi-bot-moderate kalshi-bot-conservative kalshi-bot-moderate-rr12 kalshi-bot-og-risky kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-risky-high-early kalshi-bot-risky-high-late

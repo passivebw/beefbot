@@ -117,7 +117,7 @@ PROFILES: dict[str, dict] = {
         "DAILY_LOSS_LIMIT_CENTS":  -500,
         "TRAILING_STOP_ACTIVATE":    8,
     },
-    "risky-0m": {
+    "og-risky": {
         "MOMENTUM_THRESHOLD_CENTS": 62,
         "MOMENTUM_MIN_ENTRY_CENTS": 62,
         "MOMENTUM_MAX_ENTRY_CENTS": 68,
@@ -135,63 +135,6 @@ PROFILES: dict[str, dict] = {
         "MIN_RR_RATIO":             1.0,
         "DAILY_LOSS_LIMIT_CENTS":  -800,
         "TRAILING_STOP_ACTIVATE":   10,
-    },
-    "risky-1m": {
-        "MOMENTUM_THRESHOLD_CENTS": 62,
-        "MOMENTUM_MIN_ENTRY_CENTS": 62,
-        "MOMENTUM_MAX_ENTRY_CENTS": 68,
-        "ENTRY_WAIT_SECONDS":        60,
-        "SCAN_WINDOW_SECONDS":      900,
-        "TAKE_PROFIT_CENTS":        90,
-        "STOP_LOSS_CENTS":          45,
-        "SL_OFFSET_CENTS":          15,
-        "SL_ALERT_CENTS":           52,
-        "TIME_STOP_SECONDS":        90,
-        "PRICE_MOMENTUM_MIN_PCT":   0.02,
-        "VOLUME_RATIO_MIN":         1.0,
-        "FUNDING_RATE_MAX":         0.0020,
-        "FEAR_GREED_EXTREME":       10,
-        "MIN_RR_RATIO":             1.0,
-        "DAILY_LOSS_LIMIT_CENTS":  -800,
-        "TRAILING_STOP_ACTIVATE":   10,
-    },
-    "risky-2m": {
-        "MOMENTUM_THRESHOLD_CENTS": 62,
-        "MOMENTUM_MIN_ENTRY_CENTS": 62,
-        "MOMENTUM_MAX_ENTRY_CENTS": 68,
-        "ENTRY_WAIT_SECONDS":       120,
-        "SCAN_WINDOW_SECONDS":      900,
-        "TAKE_PROFIT_CENTS":        90,
-        "STOP_LOSS_CENTS":          45,
-        "SL_OFFSET_CENTS":          15,
-        "SL_ALERT_CENTS":           52,
-        "TIME_STOP_SECONDS":        90,
-        "PRICE_MOMENTUM_MIN_PCT":   0.02,
-        "VOLUME_RATIO_MIN":         1.0,
-        "FUNDING_RATE_MAX":         0.0020,
-        "FEAR_GREED_EXTREME":       10,
-        "MIN_RR_RATIO":             1.0,
-        "DAILY_LOSS_LIMIT_CENTS":  -800,
-        "TRAILING_STOP_ACTIVATE":   10,
-    },
-    "conservative-69": {
-        "MOMENTUM_THRESHOLD_CENTS": 62,
-        "MOMENTUM_MIN_ENTRY_CENTS": 62,
-        "MOMENTUM_MAX_ENTRY_CENTS": 72,
-        "ENTRY_WAIT_SECONDS":        60,
-        "SCAN_WINDOW_SECONDS":      900,
-        "TAKE_PROFIT_CENTS":        82,
-        "STOP_LOSS_CENTS":          50,
-        "SL_OFFSET_CENTS":          12,
-        "SL_ALERT_CENTS":           57,
-        "TIME_STOP_SECONDS":        120,
-        "PRICE_MOMENTUM_MIN_PCT":   0.10,
-        "VOLUME_RATIO_MIN":         1.5,
-        "FUNDING_RATE_MAX":         0.0008,
-        "FEAR_GREED_EXTREME":       25,
-        "MIN_RR_RATIO":             1.0,
-        "DAILY_LOSS_LIMIT_CENTS":  -300,
-        "TRAILING_STOP_ACTIVATE":    8,
     },
     "moderate-rr12": {
         "MOMENTUM_THRESHOLD_CENTS": 65,
@@ -211,6 +154,47 @@ PROFILES: dict[str, dict] = {
         "MIN_RR_RATIO":             1.1,
         "DAILY_LOSS_LIMIT_CENTS":  -300,
         "TRAILING_STOP_ACTIVATE":    8,
+    },
+    # ------------------------------------------------------------------
+    # Bracket profiles — place limit BUY on both YES and NO at open,
+    # ride whichever fills to a TP alert, then SELL limit at (alert-3c).
+    # No stop loss. Loop within window. Paper only.
+    # ------------------------------------------------------------------
+    "risky-low": {
+        "strategy":                       "bracket",
+        "BRACKET_ENTRY_CENTS":            36,
+        "BRACKET_TP_ALERT_CENTS":         55,
+        "BRACKET_SELL_CENTS":             52,
+        "BRACKET_WINDOW_START_SECONDS":    0,
+        "BRACKET_WINDOW_DURATION_SECONDS": 300,
+        "DAILY_LOSS_LIMIT_CENTS":        -500,
+    },
+    "risky-mid": {
+        "strategy":                       "bracket",
+        "BRACKET_ENTRY_CENTS":            45,
+        "BRACKET_TP_ALERT_CENTS":         64,
+        "BRACKET_SELL_CENTS":             61,
+        "BRACKET_WINDOW_START_SECONDS":    0,
+        "BRACKET_WINDOW_DURATION_SECONDS": 300,
+        "DAILY_LOSS_LIMIT_CENTS":        -500,
+    },
+    "risky-high-early": {
+        "strategy":                       "bracket",
+        "BRACKET_ENTRY_CENTS":            70,
+        "BRACKET_TP_ALERT_CENTS":         90,
+        "BRACKET_SELL_CENTS":             87,
+        "BRACKET_WINDOW_START_SECONDS":    0,
+        "BRACKET_WINDOW_DURATION_SECONDS": 300,
+        "DAILY_LOSS_LIMIT_CENTS":        -500,
+    },
+    "risky-high-late": {
+        "strategy":                       "bracket",
+        "BRACKET_ENTRY_CENTS":            70,
+        "BRACKET_TP_ALERT_CENTS":         90,
+        "BRACKET_SELL_CENTS":             87,
+        "BRACKET_WINDOW_START_SECONDS":   420,   # start at 7 min from contract open
+        "BRACKET_WINDOW_DURATION_SECONDS": 480,  # last 8 min of contract
+        "DAILY_LOSS_LIMIT_CENTS":        -500,
     },
 }
 
@@ -1121,6 +1105,170 @@ def run_cycle(
     return True
 
 # ---------------------------------------------------------------------------
+# Bracket strategy (risky-low / risky-mid / risky-high-early / risky-high-late)
+# ---------------------------------------------------------------------------
+
+BRACKET_PROFILE_NAMES = {"risky-low", "risky-mid", "risky-high-early", "risky-high-late"}
+
+
+def run_bracket_cycle(
+    client: KalshiClient,
+    conn: sqlite3.Connection,
+    log: logging.LoggerAdapter,
+    series: str,
+    profile: str,
+    ticker: str,
+    expiry_ts: float,
+) -> None:
+    """
+    Bracket strategy for one contract window:
+      1. Wait until window opens.
+      2. Poll orderbook until YES ask OR NO ask falls to BRACKET_ENTRY_CENTS.
+      3. Whichever side fills first — the other is implicitly cancelled (paper).
+      4. Monitor bid for filled side until it hits BRACKET_TP_ALERT_CENTS.
+      5. Place SELL limit at BRACKET_SELL_CENTS (fills immediately in paper since
+         bid >= alert >= sell price at that moment).
+      6. Loop back to step 2 if still within window.
+      7. After window closes, let last open trade ride to natural expiry.
+    """
+    if circuit_breaker_open():
+        log.info(f"[{ticker}] Circuit breaker active — skipping bracket cycle")
+        return
+
+    cfg            = PROFILES[profile]
+    entry_c        = cfg["BRACKET_ENTRY_CENTS"]
+    tp_alert_c     = cfg["BRACKET_TP_ALERT_CENTS"]
+    sell_c         = cfg["BRACKET_SELL_CENTS"]
+    win_start_off  = cfg["BRACKET_WINDOW_START_SECONDS"]
+    win_duration   = cfg["BRACKET_WINDOW_DURATION_SECONDS"]
+
+    # Each 15-min contract is 900 seconds
+    contract_open_ts = expiry_ts - 900
+    window_start_ts  = contract_open_ts + win_start_off
+    window_end_ts    = window_start_ts + win_duration
+
+    # Wait until window opens (relevant for risky-high-late)
+    now = time.time()
+    if now < window_start_ts:
+        wait_s = window_start_ts - now
+        log.info(f"[{ticker}] Bracket window opens in {wait_s:.0f}s — waiting...")
+        time.sleep(wait_s)
+
+    if time.time() >= window_end_ts:
+        log.info(f"[{ticker}] Bracket window already closed — skipping")
+        return
+
+    log.info(
+        f"[{ticker}] BRACKET START  entry={entry_c}c  "
+        f"tp_alert={tp_alert_c}c  sell={sell_c}c  "
+        f"window={win_duration}s  profile={profile}"
+    )
+
+    round_num = 0
+    while time.time() < window_end_ts:
+        if circuit_breaker_open():
+            log.info(f"[{ticker}] Circuit breaker hit — stopping bracket rounds")
+            break
+
+        round_num += 1
+        log.info(f"[{ticker}] Bracket round {round_num} — waiting for {entry_c}c fill")
+
+        # ---- Phase 1: scan for fill (ask drops to entry price) ----
+        filled_side: Optional[str] = None
+        entry_filled: int           = 0
+
+        while time.time() < window_end_ts:
+            try:
+                ob = client.get_orderbook(ticker, expiry_ts)
+            except Exception as e:
+                log.warning(f"[{ticker}] Orderbook error: {e}")
+                time.sleep(2)
+                continue
+
+            yes_ask = ob.yes_ask or 0
+            no_ask  = ob.no_ask  or 0
+            log.debug(f"[{ticker}] bracket scan r{round_num}: yes_ask={yes_ask}c no_ask={no_ask}c target<={entry_c}c")
+
+            # Limit BUY fills when ask <= our limit price
+            if yes_ask > 0 and yes_ask <= entry_c:
+                filled_side  = "yes"
+                entry_filled = yes_ask
+                break
+            if no_ask > 0 and no_ask <= entry_c:
+                filled_side  = "no"
+                entry_filled = no_ask
+                break
+
+            time.sleep(2)
+
+        if not filled_side:
+            log.info(f"[{ticker}] Bracket r{round_num}: window closed with no fill — done")
+            break
+
+        log.info(f"[{ticker}] Bracket FILL: {filled_side.upper()} @ {entry_filled}c (limit was {entry_c}c)")
+
+        # ---- Phase 2: monitor bid for TP alert → place SELL limit ----
+        exit_cents:  int = 0
+        exit_reason: str = "expired"
+
+        while True:
+            try:
+                ob = client.get_orderbook(ticker, expiry_ts)
+            except Exception as e:
+                log.warning(f"[{ticker}] Orderbook error: {e}")
+                time.sleep(2)
+                continue
+
+            tte = expiry_ts - time.time()
+            bid = ob.yes_bid if filled_side == "yes" else ob.no_bid
+
+            if bid >= tp_alert_c:
+                # TP alert fires — place SELL limit at sell_c.
+                # In paper: bid is already >= tp_alert_c >= sell_c so it fills immediately.
+                exit_cents  = sell_c
+                exit_reason = "take_profit"
+                log.info(
+                    f"[{ticker}] TP ALERT: bid={bid}c >= {tp_alert_c}c — "
+                    f"SELL limit placed @ {sell_c}c → filled"
+                )
+                break
+
+            if tte <= 0:
+                mid = ob.mid_yes if filled_side == "yes" else (100 - ob.mid_yes)
+                exit_cents  = mid
+                exit_reason = "expired"
+                log.info(f"[{ticker}] EXPIRED  exit@{exit_cents}c")
+                break
+
+            time.sleep(2)
+
+        pnl_cents = exit_cents - entry_filled
+        sign = "+" if pnl_cents >= 0 else ""
+        log.info(
+            f"[{ticker}] CLOSED  side={filled_side}  entry={entry_filled}c  "
+            f"exit={exit_cents}c  reason={exit_reason}  "
+            f"PnL={sign}{pnl_cents}c / {sign}${pnl_cents/100:.4f}"
+        )
+
+        log_trade(
+            conn, ticker, series, profile, "bracket", filled_side,
+            entry_filled, exit_cents, exit_reason, pnl_cents,
+        )
+        record_daily_pnl(pnl_cents)
+
+        # If contract expired, no more rounds possible
+        if exit_reason == "expired":
+            break
+
+        # Loop back if still within window
+        if time.time() < window_end_ts:
+            log.info(f"[{ticker}] Trade settled — looping for next bracket round")
+        else:
+            log.info(f"[{ticker}] Bracket window closed — no more rounds")
+            break
+
+
+# ---------------------------------------------------------------------------
 # Per-series worker thread
 # ---------------------------------------------------------------------------
 
@@ -1213,6 +1361,16 @@ def series_worker(
         known_ticker = ticker
         skip_wait = False
         traded_tickers.add(ticker)
+
+        # Bracket profiles use their own cycle function
+        if profile in BRACKET_PROFILE_NAMES:
+            try:
+                run_bracket_cycle(client, conn, log, series, profile, ticker, expiry_ts)
+            except Exception as e:
+                log.error(f"Bracket cycle error: {e}", exc_info=True)
+            if not stop_event.is_set():
+                sleep_until_next_contract(log)
+            continue
 
         while not stop_event.is_set():
             try:
@@ -1657,33 +1815,40 @@ def main() -> None:
     ACTIVE_PROFILE = args.profile
     profile_cfg = PROFILES[ACTIVE_PROFILE]
 
-    # Apply profile params as module globals so all functions pick them up
-    MOMENTUM_THRESHOLD_CENTS = profile_cfg["MOMENTUM_THRESHOLD_CENTS"]
-    MOMENTUM_MIN_ENTRY_CENTS = profile_cfg["MOMENTUM_MIN_ENTRY_CENTS"]
-    MOMENTUM_MAX_ENTRY_CENTS = profile_cfg["MOMENTUM_MAX_ENTRY_CENTS"]
-    ENTRY_WAIT_SECONDS       = profile_cfg["ENTRY_WAIT_SECONDS"]
-    SCAN_WINDOW_SECONDS      = profile_cfg["SCAN_WINDOW_SECONDS"]
-    TAKE_PROFIT_CENTS        = profile_cfg["TAKE_PROFIT_CENTS"]
-    STOP_LOSS_CENTS          = profile_cfg["STOP_LOSS_CENTS"]
-    SL_OFFSET_CENTS          = profile_cfg["SL_OFFSET_CENTS"]
-    SL_ALERT_CENTS           = profile_cfg["SL_ALERT_CENTS"]
-    TIME_STOP_SECONDS        = profile_cfg["TIME_STOP_SECONDS"]
-    PRICE_MOMENTUM_MIN_PCT   = profile_cfg["PRICE_MOMENTUM_MIN_PCT"]
-    VOLUME_RATIO_MIN         = profile_cfg["VOLUME_RATIO_MIN"]
-    FUNDING_RATE_MAX         = profile_cfg["FUNDING_RATE_MAX"]
-    FEAR_GREED_EXTREME       = profile_cfg["FEAR_GREED_EXTREME"]
-    MIN_RR_RATIO             = profile_cfg["MIN_RR_RATIO"]
-    TRAILING_STOP_ACTIVATE   = profile_cfg["TRAILING_STOP_ACTIVATE"]
+    # Apply profile params as module globals so all functions pick them up.
+    # Bracket profiles only define bracket-specific keys; use .get() with
+    # module-level defaults so momentum globals are left untouched for them.
+    MOMENTUM_THRESHOLD_CENTS = profile_cfg.get("MOMENTUM_THRESHOLD_CENTS", MOMENTUM_THRESHOLD_CENTS)
+    MOMENTUM_MIN_ENTRY_CENTS = profile_cfg.get("MOMENTUM_MIN_ENTRY_CENTS", MOMENTUM_MIN_ENTRY_CENTS)
+    MOMENTUM_MAX_ENTRY_CENTS = profile_cfg.get("MOMENTUM_MAX_ENTRY_CENTS", MOMENTUM_MAX_ENTRY_CENTS)
+    ENTRY_WAIT_SECONDS       = profile_cfg.get("ENTRY_WAIT_SECONDS",       ENTRY_WAIT_SECONDS)
+    SCAN_WINDOW_SECONDS      = profile_cfg.get("SCAN_WINDOW_SECONDS",      SCAN_WINDOW_SECONDS)
+    TAKE_PROFIT_CENTS        = profile_cfg.get("TAKE_PROFIT_CENTS",        TAKE_PROFIT_CENTS)
+    STOP_LOSS_CENTS          = profile_cfg.get("STOP_LOSS_CENTS",          STOP_LOSS_CENTS)
+    SL_OFFSET_CENTS          = profile_cfg.get("SL_OFFSET_CENTS",          SL_OFFSET_CENTS)
+    SL_ALERT_CENTS           = profile_cfg.get("SL_ALERT_CENTS",           SL_ALERT_CENTS)
+    TIME_STOP_SECONDS        = profile_cfg.get("TIME_STOP_SECONDS",        TIME_STOP_SECONDS)
+    PRICE_MOMENTUM_MIN_PCT   = profile_cfg.get("PRICE_MOMENTUM_MIN_PCT",   PRICE_MOMENTUM_MIN_PCT)
+    VOLUME_RATIO_MIN         = profile_cfg.get("VOLUME_RATIO_MIN",         VOLUME_RATIO_MIN)
+    FUNDING_RATE_MAX         = profile_cfg.get("FUNDING_RATE_MAX",         FUNDING_RATE_MAX)
+    FEAR_GREED_EXTREME       = profile_cfg.get("FEAR_GREED_EXTREME",       FEAR_GREED_EXTREME)
+    MIN_RR_RATIO             = profile_cfg.get("MIN_RR_RATIO",             MIN_RR_RATIO)
+    TRAILING_STOP_ACTIVATE   = profile_cfg.get("TRAILING_STOP_ACTIVATE",   TRAILING_STOP_ACTIVATE)
     DAILY_LOSS_LIMIT_CENTS   = profile_cfg["DAILY_LOSS_LIMIT_CENTS"]
     LIVE_MODE                = args.live or os.environ.get("LIVE_MODE", "false").lower() == "true"
     raw_live_series          = args.live_series or os.environ.get("LIVE_SERIES", "")
     LIVE_SERIES              = {s.strip() for s in raw_live_series.split(",") if s.strip()}
 
-    # Default port per profile so all 3 can run simultaneously
+    # Default port per profile so all can run simultaneously
     default_ports = {
-        "conservative": 8001, "moderate": 8000,
-        "risky-0m": 8002, "risky-1m": 8003, "risky-2m": 8004,
-        "conservative-69": 8005, "moderate-rr12": 8006,
+        "moderate":          8000,
+        "conservative":      8001,
+        "moderate-rr12":     8002,
+        "og-risky":          8003,
+        "risky-low":         8004,
+        "risky-mid":         8005,
+        "risky-high-early":  8006,
+        "risky-high-late":   8007,
     }
     port = args.port if args.port is not None else default_ports.get(ACTIVE_PROFILE, 8000)
 
@@ -1706,11 +1871,19 @@ def main() -> None:
     elif LIVE_MODE:
         log.info(f"LIVE markets : ALL")
     log.info(f"Markets  : {', '.join(SERIES)}")
-    log.info(f"Signal   : bid >= {MOMENTUM_THRESHOLD_CENTS}c after {ENTRY_WAIT_SECONDS}s  entry_window={MOMENTUM_MIN_ENTRY_CENTS}–{MOMENTUM_MAX_ENTRY_CENTS}c")
-    log.info(f"Exit     : TP={TAKE_PROFIT_CENTS}c  SL={STOP_LOSS_CENTS}c  TimeStop={TIME_STOP_SECONDS}s")
-    log.info(f"Filters  : momentum>={PRICE_MOMENTUM_MIN_PCT}%  vol>={VOLUME_RATIO_MIN}x  funding<={FUNDING_RATE_MAX}")
-    log.info(f"Risk     : daily_limit={DAILY_LOSS_LIMIT_CENTS}c  trailing_stop=+{TRAILING_STOP_ACTIVATE}c")
-    log.info(f"Orders   : limit@ask-1c  timeout={LIMIT_ORDER_TIMEOUT}s  then market fallback")
+    if ACTIVE_PROFILE in BRACKET_PROFILE_NAMES:
+        log.info(f"Strategy : BRACKET  entry={profile_cfg['BRACKET_ENTRY_CENTS']}c  "
+                 f"tp_alert={profile_cfg['BRACKET_TP_ALERT_CENTS']}c  "
+                 f"sell={profile_cfg['BRACKET_SELL_CENTS']}c  "
+                 f"window_start={profile_cfg['BRACKET_WINDOW_START_SECONDS']}s  "
+                 f"window_dur={profile_cfg['BRACKET_WINDOW_DURATION_SECONDS']}s")
+        log.info(f"Risk     : daily_limit={DAILY_LOSS_LIMIT_CENTS}c  no SL  let expire naturally")
+    else:
+        log.info(f"Signal   : bid >= {MOMENTUM_THRESHOLD_CENTS}c after {ENTRY_WAIT_SECONDS}s  entry_window={MOMENTUM_MIN_ENTRY_CENTS}–{MOMENTUM_MAX_ENTRY_CENTS}c")
+        log.info(f"Exit     : TP={TAKE_PROFIT_CENTS}c  SL={STOP_LOSS_CENTS}c  TimeStop={TIME_STOP_SECONDS}s")
+        log.info(f"Filters  : momentum>={PRICE_MOMENTUM_MIN_PCT}%  vol>={VOLUME_RATIO_MIN}x  funding<={FUNDING_RATE_MAX}")
+        log.info(f"Risk     : daily_limit={DAILY_LOSS_LIMIT_CENTS}c  trailing_stop=+{TRAILING_STOP_ACTIVATE}c")
+        log.info(f"Orders   : limit@ask-1c  timeout={LIMIT_ORDER_TIMEOUT}s  then market fallback")
     log.info(f"Report   : http://0.0.0.0:{port}/report")
     log.info("=" * 60)
 
