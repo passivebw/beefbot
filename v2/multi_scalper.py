@@ -814,6 +814,18 @@ def run_cycle(
                     return True
         except Exception as e:
             log.warning(f"[{ticker}] Position check failed: {e}")
+    else:
+        # Paper mode: check DB for an existing trade on this ticker in this profile
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM bracket_trade_log WHERE kalshi_ticker=? AND profile=? AND created_at >= datetime('now', '-15 minutes') LIMIT 1",
+                (ticker, profile),
+            ).fetchone()
+            if row:
+                log.warning(f"[{ticker}] Already traded this contract (paper) — skipping entry")
+                return True
+        except Exception as e:
+            log.warning(f"[{ticker}] Paper duplicate check failed: {e}")
 
     # ---- Liquidity check: yes_ask + no_ask should be close to 100c ----
     if series_is_live:
