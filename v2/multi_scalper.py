@@ -592,8 +592,9 @@ class KalshiClient:
             raise Exception(f"place_order {r.status_code}: {r.text[:500]}  body={body}")
         return r.json().get("order", {}).get("order_id")
 
-    def get_order_status(self, order_id: str) -> tuple[str, int]:
-        """Return (status, filled_price_cents). Status: resting/filled/canceled."""
+    def get_order_status(self, order_id: str, side: str = "yes") -> tuple[str, int]:
+        """Return (status, filled_price_cents). Status: resting/filled/canceled.
+        side must match the order side so the correct price field is read."""
         path = f"/trade-api/v2/portfolio/orders/{order_id}"
         r = self._http.get(
             KALSHI_BASE_URL + f"/portfolio/orders/{order_id}",
@@ -604,8 +605,11 @@ class KalshiClient:
         raw_status = order.get("status", "error")
         # Kalshi returns "executed" for filled orders
         status = "filled" if raw_status == "executed" else raw_status
-        # Price fields are in dollars (e.g. 0.79) — convert to cents
-        filled_price = order.get("yes_price_dollars") or order.get("no_price_dollars") or 0
+        # Read the price field matching the order side
+        if side == "yes":
+            filled_price = order.get("yes_price_dollars") or 0
+        else:
+            filled_price = order.get("no_price_dollars") or 0
         return status, int(round(float(filled_price) * 100))
 
     def cancel_order(self, order_id: str) -> bool:
@@ -907,7 +911,7 @@ def run_cycle(
         while time.time() < fill_deadline:
             time.sleep(3)
             try:
-                status, filled_price = client.get_order_status(order_id)
+                status, filled_price = client.get_order_status(order_id, filled_side)
             except Exception:
                 continue
             if status == "filled":
@@ -978,7 +982,7 @@ def run_cycle(
         # Check if resting SL filled externally
         if series_is_live and sl_order_id:
             try:
-                sl_status, sl_filled_price = client.get_order_status(sl_order_id)
+                sl_status, sl_filled_price = client.get_order_status(sl_order_id, filled_side)
                 if sl_status == "filled":
                     exit_reason = "stop_loss"
                     exit_cents  = sl_filled_price
@@ -1025,7 +1029,7 @@ def run_cycle(
                 if not sl_order_id:
                     break
                 try:
-                    sl_status, sl_filled_price = client.get_order_status(sl_order_id)
+                    sl_status, sl_filled_price = client.get_order_status(sl_order_id, filled_side)
                     if sl_status == "filled":
                         exit_cents  = sl_filled_price
                         sl_order_id = None
@@ -1062,7 +1066,7 @@ def run_cycle(
             if sell_id:
                 for _ in range(15):
                     time.sleep(2)
-                    status, actual_exit = client.get_order_status(sell_id)
+                    status, actual_exit = client.get_order_status(sell_id, filled_side)
                     if status == "filled":
                         exit_cents = actual_exit
                         log.info(f"[{ticker}] Market exit filled @ {exit_cents}c")
