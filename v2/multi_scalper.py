@@ -579,10 +579,13 @@ class KalshiClient:
             "count": CONTRACTS,
         }
         if order_type == "limit" and price_cents is not None:
+            # Kalshi treats yes_price as the canonical price field.
+            # For NO orders, send yes_price = 100 - no_price so the limit
+            # is correctly interpreted (sending no_price causes taker fills).
             if side == "yes":
                 body["yes_price"] = price_cents
             else:
-                body["no_price"] = price_cents
+                body["yes_price"] = 100 - price_cents
         r = self._http.post(
             KALSHI_BASE_URL + "/portfolio/orders",
             headers=self._auth.headers("POST", path),
@@ -949,49 +952,24 @@ def run_cycle(
     exit_reason: Optional[str] = None
     exit_cents:  Optional[int] = None
     dynamic_sl  = entry_cents - SL_OFFSET_CENTS  # SL = entry - 12c
-    sl_order_id: Optional[str] = None  # resting limit SL order
-    sl_cancelled_for_expiry = False    # True once we cancel SL near expiry to let contract settle
+    time_stop_active = False  # True during final TIME_STOP_SECONDS — SL disabled, ride to expiry
 
-    # ---- Place resting SL limit order immediately after entry ----
-    if series_is_live:
+    def _market_sell_live() -> Optional[int]:
+        """Place a market SELL (taker) and return actual fill price, or None on failure."""
         try:
-            sl_order_id = client.place_order(ticker, filled_side, "limit", dynamic_sl, action="sell")
-            if sl_order_id:
-                log.info(f"[{ticker}] Resting SL limit @ {dynamic_sl}c (entry={entry_cents}c - {SL_OFFSET_CENTS}c offset)  id={sl_order_id}")
-            else:
-                log.warning(f"[{ticker}] Failed to place resting SL")
+            sell_id = client.place_order(ticker, filled_side, "market", None, action="sell")
+            if not sell_id:
+                return None
+            for _ in range(15):
+                time.sleep(2)
+                status, actual_exit = client.get_order_status(sell_id, filled_side)
+                if status == "filled":
+                    return actual_exit
         except Exception as e:
-            log.warning(f"[{ticker}] SL order error: {e}")
-
-    def _replace_sl(new_price: int) -> None:
-        nonlocal sl_order_id
-        if not series_is_live or not sl_order_id:
-            return
-        try:
-            client.cancel_order(sl_order_id)
-        except Exception:
-            pass
-        try:
-            sl_order_id = client.place_order(ticker, filled_side, "limit", new_price, action="sell")
-            log.info(f"[{ticker}] SL moved to {new_price}c  id={sl_order_id}")
-        except Exception as e:
-            log.warning(f"[{ticker}] Failed to replace SL @ {new_price}c: {e}")
-            sl_order_id = None
+            log.warning(f"[{ticker}] Market sell error: {e}")
+        return None
 
     while True:
-        # Check if resting SL filled externally
-        if series_is_live and sl_order_id:
-            try:
-                sl_status, sl_filled_price = client.get_order_status(sl_order_id, filled_side)
-                if sl_status == "filled":
-                    exit_reason = "stop_loss"
-                    exit_cents  = sl_filled_price
-                    sl_order_id = None
-                    log.info(f"[{ticker}] SL limit FILLED @ {exit_cents}c — {exit_reason}")
-                    break
-            except Exception:
-                pass
-
         try:
             ob = client.get_orderbook(ticker, expiry_ts)
         except Exception as e:
@@ -1005,74 +983,44 @@ def run_cycle(
 
         log.debug(f"[{ticker}] pos: side={filled_side} mid={mid}c bid={bid}c sl={dynamic_sl}c tte={tte:.0f}s")
 
-        if tte <= TIME_STOP_SECONDS and not sl_cancelled_for_expiry:
-            # Let it ride to expiry — binary resolves at 0 or 100, no middle ground
-            # Cancel SL now so we don't get stopped out in the final seconds
-            if sl_order_id:
-                try:
-                    client.cancel_order(sl_order_id)
-                    sl_order_id = None
-                except Exception as e:
-                    log.warning(f"[{ticker}] Time stop SL cancel failed: {e}")
-            sl_cancelled_for_expiry = True
-            log.info(f"[{ticker}] TIME STOP  tte={tte:.0f}s — SL cancelled, letting contract expire")
+        if tte <= TIME_STOP_SECONDS and not time_stop_active:
+            # Let it ride to expiry — binary resolves at 0 or 100, no middle ground.
+            # Disable SL so we don't exit in the final seconds when the market is thin.
+            time_stop_active = True
+            log.info(f"[{ticker}] TIME STOP  tte={tte:.0f}s — SL disabled, letting contract expire")
 
+        # Take profit: bid hit TP — market sell immediately (taker)
         if bid >= TAKE_PROFIT_CENTS:
-            locked_sl = bid - 3  # lock in profit 3c below current bid
             exit_reason = "take_profit"
-            exit_cents  = locked_sl
-            log.info(f"[{ticker}] TP hit bid={bid}c — cancelling SL, locking in @ {locked_sl}c")
-            _replace_sl(locked_sl)
-            # Let the resting order collect the exit; monitor for fill
-            for _ in range(30):
-                time.sleep(2)
-                if not sl_order_id:
-                    break
-                try:
-                    sl_status, sl_filled_price = client.get_order_status(sl_order_id, filled_side)
-                    if sl_status == "filled":
-                        exit_cents  = sl_filled_price
-                        sl_order_id = None
-                        break
-                except Exception:
-                    pass
-            if sl_order_id:
-                client.cancel_order(sl_order_id)
-                sl_order_id = None
+            if series_is_live:
+                actual = _market_sell_live()
+                exit_cents = actual if actual is not None else bid
+                log.info(f"[{ticker}] TP hit bid={bid}c — market sold @ {exit_cents}c")
+            else:
+                exit_cents = bid
+                log.info(f"[{ticker}] PAPER TP  bid={bid}c")
             break
 
-        if mid <= dynamic_sl and not series_is_live:
-            # Paper mode only — live uses resting SL order
+        # Stop loss: mid dropped to SL level — market sell immediately (taker)
+        if mid <= dynamic_sl and not time_stop_active:
             exit_reason = "stop_loss"
-            exit_cents  = dynamic_sl
-            log.info(f"[{ticker}] STOP_LOSS  mid={mid}c  exit@{exit_cents}c")
+            if series_is_live:
+                actual = _market_sell_live()
+                exit_cents = actual if actual is not None else mid
+                log.info(f"[{ticker}] SL hit mid={mid}c — market sold @ {exit_cents}c")
+            else:
+                exit_cents = dynamic_sl
+                log.info(f"[{ticker}] PAPER SL  mid={mid}c  exit@{exit_cents}c")
             break
 
         if tte <= 0:
             exit_reason = "expired"
             exit_cents  = mid
             log.info(f"[{ticker}] EXPIRED  exit@{exit_cents}c")
-            if sl_order_id:
-                client.cancel_order(sl_order_id)
-                sl_order_id = None
             break
 
         time.sleep(SL_POLL_INTERVAL if mid <= SL_ALERT_CENTS else ORDER_POLL_INTERVAL)
 
-    # ---- Live exit: if no resting order handled it, market sell fallback ----
-    if series_is_live and exit_cents is None:
-        try:
-            sell_id = client.place_order(ticker, filled_side, "market", None, action="sell")
-            if sell_id:
-                for _ in range(15):
-                    time.sleep(2)
-                    status, actual_exit = client.get_order_status(sell_id, filled_side)
-                    if status == "filled":
-                        exit_cents = actual_exit
-                        log.info(f"[{ticker}] Market exit filled @ {exit_cents}c")
-                        break
-        except Exception as e:
-            log.warning(f"[{ticker}] Exit order error: {e}")
     if exit_cents is None:
         exit_cents = dynamic_sl  # fallback estimate
 
