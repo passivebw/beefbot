@@ -97,6 +97,7 @@ PROFILES: dict[str, dict] = {
         "MIN_RR_RATIO":             1.0,
         "DAILY_LOSS_LIMIT_CENTS":  -300,
         "TRAILING_STOP_ACTIVATE":    8,
+        "EXCLUDED_SERIES":          {"KXHYPE15M", "KXBNB15M"},
     },
     "moderate": {
         "MOMENTUM_THRESHOLD_CENTS": 65,
@@ -116,6 +117,7 @@ PROFILES: dict[str, dict] = {
         "MIN_RR_RATIO":             1.0,
         "DAILY_LOSS_LIMIT_CENTS":  -500,
         "TRAILING_STOP_ACTIVATE":    8,
+        "EXCLUDED_SERIES":          {"KXHYPE15M", "KXBNB15M"},
     },
     "og-risky": {
         "MOMENTUM_THRESHOLD_CENTS": 62,
@@ -135,6 +137,7 @@ PROFILES: dict[str, dict] = {
         "MIN_RR_RATIO":             1.0,
         "DAILY_LOSS_LIMIT_CENTS":  -800,
         "TRAILING_STOP_ACTIVATE":   10,
+        "EXCLUDED_SERIES":          {"KXHYPE15M", "KXBNB15M"},
     },
     "moderate-rr12": {
         "MOMENTUM_THRESHOLD_CENTS": 65,
@@ -154,6 +157,7 @@ PROFILES: dict[str, dict] = {
         "MIN_RR_RATIO":             1.1,
         "DAILY_LOSS_LIMIT_CENTS":  -300,
         "TRAILING_STOP_ACTIVATE":    8,
+        "EXCLUDED_SERIES":          {"KXHYPE15M", "KXBNB15M"},
     },
     # ------------------------------------------------------------------
     # Bracket profiles — place limit BUY on both YES and NO at open,
@@ -168,6 +172,7 @@ PROFILES: dict[str, dict] = {
         "BRACKET_WINDOW_START_SECONDS":    0,
         "BRACKET_WINDOW_DURATION_SECONDS": 300,
         "DAILY_LOSS_LIMIT_CENTS":        -500,
+        "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
     "risky-mid": {
         "strategy":                       "bracket",
@@ -177,26 +182,29 @@ PROFILES: dict[str, dict] = {
         "BRACKET_WINDOW_START_SECONDS":    0,
         "BRACKET_WINDOW_DURATION_SECONDS": 300,
         "DAILY_LOSS_LIMIT_CENTS":        -500,
+        "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
     "risky-high-early": {
         "strategy":                       "bracket",
         "BRACKET_ENTRY_CENTS":            70,
         "BRACKET_TP_ALERT_CENTS":         90,
         "BRACKET_SELL_CENTS":             87,    # fallback; dynamic sell = ask-3c at alert time
-        "BRACKET_SL_CENTS":               50,    # SL placed immediately on entry, cancelled at TP alert
+        "BRACKET_SL_CENTS":               50,    # SL: active mid monitor, market sell if hit
         "BRACKET_WINDOW_START_SECONDS":    0,
         "BRACKET_WINDOW_DURATION_SECONDS": 300,
         "DAILY_LOSS_LIMIT_CENTS":        -500,
+        "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
     "risky-high-late": {
         "strategy":                       "bracket",
         "BRACKET_ENTRY_CENTS":            70,
         "BRACKET_TP_ALERT_CENTS":         90,
         "BRACKET_SELL_CENTS":             87,    # fallback; dynamic sell = ask-3c at alert time
-        "BRACKET_SL_CENTS":               50,    # SL placed immediately on entry, cancelled at TP alert
+        "BRACKET_SL_CENTS":               50,    # SL: active mid monitor, market sell if hit
         "BRACKET_WINDOW_START_SECONDS":   420,   # start at 7 min from contract open
         "BRACKET_WINDOW_DURATION_SECONDS": 480,  # last 8 min of contract
         "DAILY_LOSS_LIMIT_CENTS":        -500,
+        "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
 }
 
@@ -1163,12 +1171,14 @@ def run_bracket_cycle(
 
         log.info(f"[{ticker}] Bracket FILL: {filled_side.upper()} @ {entry_filled}c (limit was {entry_c}c)")
         if sl_c is not None:
-            log.info(f"[{ticker}] SL active @ {sl_c}c — will cancel on TP alert")
+            log.info(f"[{ticker}] SL active @ {sl_c}c — monitoring mid, will market sell if hit")
 
-        # ---- Phase 2: monitor bid for SL / TP alert → place SELL limit ----
+        series_is_live = LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)
+
+        # ---- Phase 2: monitor for SL (active mid watch) and TP (limit SELL) ----
         exit_cents:  int = 0
         exit_reason: str = "expired"
-        sl_active = sl_c is not None   # tracks whether SL is still live
+        sl_active = sl_c is not None  # SL only for risky-high profiles
 
         while True:
             try:
@@ -1183,25 +1193,68 @@ def run_bracket_cycle(
             mid = ob.mid_yes if filled_side == "yes" else (100 - ob.mid_yes)
             ask = ob.yes_ask if filled_side == "yes" else ob.no_ask
 
-            # SL check (paper): mid drops to or below sl_c
+            # SL: mid dropped to or below sl_c
+            # Live: market sell immediately. Paper: exit at sl_c.
             if sl_active and mid <= sl_c:
-                exit_cents  = sl_c
                 exit_reason = "stop_loss"
+                if series_is_live:
+                    try:
+                        sell_id = client.place_order(ticker, filled_side, "market", None, action="sell")
+                        actual = None
+                        if sell_id:
+                            for _ in range(15):
+                                time.sleep(2)
+                                status, fill_p = client.get_order_status(sell_id, filled_side)
+                                if status == "filled":
+                                    actual = fill_p
+                                    break
+                        exit_cents = actual if actual is not None else mid
+                    except Exception as e:
+                        log.warning(f"[{ticker}] SL market sell error: {e}")
+                        exit_cents = mid
+                else:
+                    exit_cents = sl_c
                 log.info(f"[{ticker}] STOP_LOSS  mid={mid}c <= {sl_c}c — exit@{exit_cents}c")
                 break
 
+            # TP alert: bid hit tp_alert_c
+            # Cancel SL, place limit SELL at (ask - 3c) immediately.
             if bid >= tp_alert_c:
-                # TP alert fires:
-                #   1. Cancel the 50c SL (paper: just flag it off)
-                #   2. Place new SELL limit at (current ask - 3c)
-                sl_active   = False
+                sl_active    = False
                 dynamic_sell = max((ask - 3) if ask > 0 else sell_c, 1)
-                exit_cents  = dynamic_sell
-                exit_reason = "take_profit"
+                exit_reason  = "take_profit"
                 log.info(
                     f"[{ticker}] TP ALERT: bid={bid}c >= {tp_alert_c}c — "
-                    f"SL cancelled, SELL limit placed @ {dynamic_sell}c (ask={ask}c - 3c)"
+                    f"placing SELL limit @ {dynamic_sell}c (ask={ask}c - 3c)"
                 )
+                if series_is_live:
+                    try:
+                        sell_id = client.place_order(ticker, filled_side, "limit", dynamic_sell, action="sell")
+                        actual = None
+                        if sell_id:
+                            for _ in range(30):
+                                time.sleep(2)
+                                status, fill_p = client.get_order_status(sell_id, filled_side)
+                                if status == "filled":
+                                    actual = fill_p
+                                    break
+                            if actual is None:
+                                client.cancel_order(sell_id)
+                                # fallback: market sell
+                                sell_id2 = client.place_order(ticker, filled_side, "market", None, action="sell")
+                                if sell_id2:
+                                    for _ in range(15):
+                                        time.sleep(2)
+                                        status, fill_p = client.get_order_status(sell_id2, filled_side)
+                                        if status == "filled":
+                                            actual = fill_p
+                                            break
+                        exit_cents = actual if actual is not None else dynamic_sell
+                    except Exception as e:
+                        log.warning(f"[{ticker}] TP sell error: {e}")
+                        exit_cents = dynamic_sell
+                else:
+                    exit_cents = dynamic_sell
                 break
 
             if tte <= 0:
@@ -1230,9 +1283,10 @@ def run_bracket_cycle(
         if exit_reason == "expired":
             break
 
-        # Loop back if still within window
+        # Loop back if still within window — sleep briefly to avoid rate limits
         if time.time() < window_end_ts:
-            log.info(f"[{ticker}] Trade settled — looping for next bracket round")
+            log.info(f"[{ticker}] Trade settled — waiting 5s before next bracket round")
+            time.sleep(5)
         else:
             log.info(f"[{ticker}] Bracket window closed — no more rounds")
             break
@@ -1295,6 +1349,13 @@ def series_worker(
     known_ticker: Optional[str] = None
 
     log.info(f"Worker started — series={series} profile={profile}")
+
+    # Check if this series is excluded for this profile
+    excluded = PROFILES.get(profile, {}).get("EXCLUDED_SERIES", set())
+    if series in excluded:
+        log.info(f"Series {series} is excluded for profile {profile} — worker idle")
+        stop_event.wait()  # sleep forever until stop signal
+        return
 
     # In-memory guard: tickers we've already entered (or attempted) this session.
     # Prevents re-entry even if the Kalshi position check fails.
@@ -1473,13 +1534,15 @@ def discord_summary_scheduler(conn: sqlite3.Connection, stop_event: threading.Ev
             if key in fired_hours:
                 continue
 
-            # Pull 24h stats
+            # Pull 24h stats for this profile only
             rows = conn.execute(
                 """SELECT COUNT(*) as trades,
                           SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins,
                           SUM(pnl_cents) as pnl
                    FROM bracket_trade_log
-                   WHERE created_at >= datetime('now', '-24 hours')"""
+                   WHERE created_at >= datetime('now', '-24 hours')
+                     AND profile = ?""",
+                (ACTIVE_PROFILE,)
             ).fetchone()
             trades = rows[0] or 0
             wins   = rows[1] or 0
