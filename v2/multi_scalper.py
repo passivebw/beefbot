@@ -961,6 +961,7 @@ def run_cycle(
     exit_cents:  Optional[int] = None
     dynamic_sl  = entry_cents - SL_OFFSET_CENTS  # SL = entry - 12c
     time_stop_active = False  # True during final TIME_STOP_SECONDS — SL disabled, ride to expiry
+    tp_order_id: Optional[str] = None  # resting SELL limit at TP price
 
     def _market_sell_live() -> Optional[int]:
         """Place a market SELL (taker) and return actual fill price, or None on failure."""
@@ -977,7 +978,32 @@ def run_cycle(
             log.warning(f"[{ticker}] Market sell error: {e}")
         return None
 
+    # Place resting TP limit SELL immediately — sits as maker, fills when price gets there.
+    # Price is well below TP at entry so this will never fill immediately.
+    if series_is_live:
+        try:
+            tp_order_id = client.place_order(ticker, filled_side, "limit", TAKE_PROFIT_CENTS, action="sell")
+            if tp_order_id:
+                log.info(f"[{ticker}] Resting TP limit SELL @ {TAKE_PROFIT_CENTS}c  id={tp_order_id}")
+            else:
+                log.warning(f"[{ticker}] Failed to place resting TP order")
+        except Exception as e:
+            log.warning(f"[{ticker}] TP order error: {e}")
+
     while True:
+        # Check if resting TP order filled
+        if series_is_live and tp_order_id:
+            try:
+                tp_status, tp_filled_price = client.get_order_status(tp_order_id, filled_side)
+                if tp_status == "filled":
+                    exit_reason = "take_profit"
+                    exit_cents  = tp_filled_price
+                    tp_order_id = None
+                    log.info(f"[{ticker}] TP limit FILLED @ {exit_cents}c")
+                    break
+            except Exception:
+                pass
+
         try:
             ob = client.get_orderbook(ticker, expiry_ts)
         except Exception as e:
@@ -997,22 +1023,20 @@ def run_cycle(
             time_stop_active = True
             log.info(f"[{ticker}] TIME STOP  tte={tte:.0f}s — SL disabled, letting contract expire")
 
-        # Take profit: bid hit TP — market sell immediately (taker)
-        if bid >= TAKE_PROFIT_CENTS:
+        # Paper TP check
+        if not series_is_live and bid >= TAKE_PROFIT_CENTS:
             exit_reason = "take_profit"
-            if series_is_live:
-                actual = _market_sell_live()
-                exit_cents = actual if actual is not None else bid
-                log.info(f"[{ticker}] TP hit bid={bid}c — market sold @ {exit_cents}c")
-            else:
-                exit_cents = bid
-                log.info(f"[{ticker}] PAPER TP  bid={bid}c")
+            exit_cents  = bid
+            log.info(f"[{ticker}] PAPER TP  bid={bid}c")
             break
 
-        # Stop loss: mid dropped to SL level — market sell immediately (taker)
+        # SL: mid dropped — cancel TP order then market sell
         if mid <= dynamic_sl and not time_stop_active:
             exit_reason = "stop_loss"
             if series_is_live:
+                if tp_order_id:
+                    client.cancel_order(tp_order_id)
+                    tp_order_id = None
                 actual = _market_sell_live()
                 exit_cents = actual if actual is not None else mid
                 log.info(f"[{ticker}] SL hit mid={mid}c — market sold @ {exit_cents}c")
@@ -1024,6 +1048,9 @@ def run_cycle(
         if tte <= 0:
             exit_reason = "expired"
             exit_cents  = mid
+            if series_is_live and tp_order_id:
+                client.cancel_order(tp_order_id)
+                tp_order_id = None
             log.info(f"[{ticker}] EXPIRED  exit@{exit_cents}c")
             break
 
@@ -1175,12 +1202,38 @@ def run_bracket_cycle(
 
         series_is_live = LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)
 
-        # ---- Phase 2: monitor for SL (active mid watch) and TP (limit SELL) ----
+        # Place resting TP limit SELL at BRACKET_SELL_CENTS immediately after entry.
+        # Sits as a maker order in the book — fills when bid reaches that price.
+        tp_order_id: Optional[str] = None
+        if series_is_live:
+            try:
+                tp_order_id = client.place_order(ticker, filled_side, "limit", sell_c, action="sell")
+                if tp_order_id:
+                    log.info(f"[{ticker}] Resting TP limit SELL @ {sell_c}c  id={tp_order_id}")
+                else:
+                    log.warning(f"[{ticker}] Failed to place resting TP order")
+            except Exception as e:
+                log.warning(f"[{ticker}] TP order error: {e}")
+
+        # ---- Phase 2: monitor for TP fill and SL (active mid watch) ----
         exit_cents:  int = 0
         exit_reason: str = "expired"
         sl_active = sl_c is not None  # SL only for risky-high profiles
 
         while True:
+            # Check if resting TP order filled
+            if series_is_live and tp_order_id:
+                try:
+                    tp_status, tp_filled_price = client.get_order_status(tp_order_id, filled_side)
+                    if tp_status == "filled":
+                        exit_reason = "take_profit"
+                        exit_cents  = tp_filled_price
+                        tp_order_id = None
+                        log.info(f"[{ticker}] TP limit FILLED @ {exit_cents}c")
+                        break
+                except Exception:
+                    pass
+
             try:
                 ob = client.get_orderbook(ticker, expiry_ts)
             except Exception as e:
@@ -1191,13 +1244,21 @@ def run_bracket_cycle(
             tte = expiry_ts - time.time()
             bid = ob.yes_bid if filled_side == "yes" else ob.no_bid
             mid = ob.mid_yes if filled_side == "yes" else (100 - ob.mid_yes)
-            ask = ob.yes_ask if filled_side == "yes" else ob.no_ask
 
-            # SL: mid dropped to or below sl_c
-            # Live: market sell immediately. Paper: exit at sl_c.
+            # Paper TP check
+            if not series_is_live and bid >= tp_alert_c:
+                exit_reason = "take_profit"
+                exit_cents  = sell_c
+                log.info(f"[{ticker}] PAPER TP  bid={bid}c >= {tp_alert_c}c — exit@{sell_c}c")
+                break
+
+            # SL: mid dropped — cancel TP order then market sell (live) / exit at sl_c (paper)
             if sl_active and mid <= sl_c:
                 exit_reason = "stop_loss"
                 if series_is_live:
+                    if tp_order_id:
+                        client.cancel_order(tp_order_id)
+                        tp_order_id = None
                     try:
                         sell_id = client.place_order(ticker, filled_side, "market", None, action="sell")
                         actual = None
@@ -1217,49 +1278,12 @@ def run_bracket_cycle(
                 log.info(f"[{ticker}] STOP_LOSS  mid={mid}c <= {sl_c}c — exit@{exit_cents}c")
                 break
 
-            # TP alert: bid hit tp_alert_c
-            # Cancel SL, place limit SELL at (ask - 3c) immediately.
-            if bid >= tp_alert_c:
-                sl_active    = False
-                dynamic_sell = max((ask - 3) if ask > 0 else sell_c, 1)
-                exit_reason  = "take_profit"
-                log.info(
-                    f"[{ticker}] TP ALERT: bid={bid}c >= {tp_alert_c}c — "
-                    f"placing SELL limit @ {dynamic_sell}c (ask={ask}c - 3c)"
-                )
-                if series_is_live:
-                    try:
-                        sell_id = client.place_order(ticker, filled_side, "limit", dynamic_sell, action="sell")
-                        actual = None
-                        if sell_id:
-                            for _ in range(30):
-                                time.sleep(2)
-                                status, fill_p = client.get_order_status(sell_id, filled_side)
-                                if status == "filled":
-                                    actual = fill_p
-                                    break
-                            if actual is None:
-                                client.cancel_order(sell_id)
-                                # fallback: market sell
-                                sell_id2 = client.place_order(ticker, filled_side, "market", None, action="sell")
-                                if sell_id2:
-                                    for _ in range(15):
-                                        time.sleep(2)
-                                        status, fill_p = client.get_order_status(sell_id2, filled_side)
-                                        if status == "filled":
-                                            actual = fill_p
-                                            break
-                        exit_cents = actual if actual is not None else dynamic_sell
-                    except Exception as e:
-                        log.warning(f"[{ticker}] TP sell error: {e}")
-                        exit_cents = dynamic_sell
-                else:
-                    exit_cents = dynamic_sell
-                break
-
             if tte <= 0:
                 exit_cents  = mid
                 exit_reason = "expired"
+                if series_is_live and tp_order_id:
+                    client.cancel_order(tp_order_id)
+                    tp_order_id = None
                 log.info(f"[{ticker}] EXPIRED  exit@{exit_cents}c")
                 break
 
