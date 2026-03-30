@@ -90,13 +90,7 @@ PROFILES: dict[str, dict] = {
         "SL_OFFSET_CENTS":          12,
         "SL_ALERT_CENTS":           57,
         "TIME_STOP_SECONDS":        120,
-        "PRICE_MOMENTUM_MIN_PCT":   0.10,
-        "VOLUME_RATIO_MIN":         1.5,
-        "FUNDING_RATE_MAX":         0.0008,
-        "FEAR_GREED_EXTREME":       25,
-        "MIN_RR_RATIO":             1.0,
         "DAILY_LOSS_LIMIT_CENTS":  -300,
-        "TRAILING_STOP_ACTIVATE":    8,
         "EXCLUDED_SERIES":          {"KXHYPE15M", "KXBNB15M"},
     },
     "moderate": {
@@ -110,13 +104,7 @@ PROFILES: dict[str, dict] = {
         "SL_OFFSET_CENTS":          12,
         "SL_ALERT_CENTS":           55,
         "TIME_STOP_SECONDS":        120,
-        "PRICE_MOMENTUM_MIN_PCT":   0.05,
-        "VOLUME_RATIO_MIN":         1.2,
-        "FUNDING_RATE_MAX":         0.0010,
-        "FEAR_GREED_EXTREME":       20,
-        "MIN_RR_RATIO":             1.0,
         "DAILY_LOSS_LIMIT_CENTS":  -500,
-        "TRAILING_STOP_ACTIVATE":    8,
         "EXCLUDED_SERIES":          {"KXHYPE15M", "KXBNB15M"},
     },
     "og-risky": {
@@ -130,13 +118,7 @@ PROFILES: dict[str, dict] = {
         "SL_OFFSET_CENTS":          15,
         "SL_ALERT_CENTS":           52,
         "TIME_STOP_SECONDS":        90,
-        "PRICE_MOMENTUM_MIN_PCT":   0.02,
-        "VOLUME_RATIO_MIN":         1.0,
-        "FUNDING_RATE_MAX":         0.0020,
-        "FEAR_GREED_EXTREME":       10,
-        "MIN_RR_RATIO":             1.0,
         "DAILY_LOSS_LIMIT_CENTS":  -800,
-        "TRAILING_STOP_ACTIVATE":   10,
         "EXCLUDED_SERIES":          {"KXHYPE15M", "KXBNB15M"},
     },
     "moderate-rr12": {
@@ -150,13 +132,7 @@ PROFILES: dict[str, dict] = {
         "SL_OFFSET_CENTS":          12,
         "SL_ALERT_CENTS":           55,
         "TIME_STOP_SECONDS":        120,
-        "PRICE_MOMENTUM_MIN_PCT":   0.05,
-        "VOLUME_RATIO_MIN":         1.2,
-        "FUNDING_RATE_MAX":         0.0010,
-        "FEAR_GREED_EXTREME":       20,
-        "MIN_RR_RATIO":             1.1,
         "DAILY_LOSS_LIMIT_CENTS":  -300,
-        "TRAILING_STOP_ACTIVATE":    8,
         "EXCLUDED_SERIES":          {"KXHYPE15M", "KXBNB15M"},
     },
     # ------------------------------------------------------------------
@@ -318,31 +294,12 @@ def tg_daily_summary(profile: str, trades: int, wins: int, pnl: int) -> None:
         f"Session P&L: {pnl:+}c (${pnl/100:+.2f})"
     )
 
-# External confirmation filters
-PRICE_MOMENTUM_MIN_PCT   = 0.05  # require at least 0.05% price move in signal direction
-VOLUME_RATIO_MIN         = 1.2   # last candle volume must be 1.2x the recent average
-MAX_SPREAD_CENTS = 20  # skip if yes_ask + no_ask > 120c — wide combined spread = thin market
-FUNDING_RATE_MAX         = 0.0010  # skip if funding rate strongly opposes direction (0.10%)
-FEAR_GREED_EXTREME       = 20    # skip if F&G < 20 (extreme fear) on YES, or > 80 on NO
-MIN_RR_RATIO             = 1.0   # minimum reward:risk ratio required to enter
-TRAILING_STOP_ACTIVATE   = 8    # cents of profit before moving SL to breakeven
 DAILY_LOSS_LIMIT_CENTS   = -500  # overridden per profile at startup
 
 # Live trading — use --live flag to enable real orders
 LIVE_MODE            = False   # overridden at startup from --live flag
 LIVE_SERIES: set     = set()   # empty = all series live; populated from --live-series
 LIMIT_ORDER_TIMEOUT  = 45      # seconds to wait for limit fill before fallback
-
-# Binance symbol mapping
-BINANCE_SYMBOL = {
-    "KXBTC15M":  "BTCUSDT",
-    "KXETH15M":  "ETHUSDT",
-    "KXSOL15M":  "SOLUSDT",
-    "KXXRP15M":  "XRPUSDT",
-    "KXDOGE15M": "DOGEUSDT",
-    "KXBNB15M":  "BNBUSDT",
-    "KXHYPE15M": "HYPEUSDT",
-}
 
 # Per-series momentum threshold overrides (added on top of profile threshold)
 # XRP and ETH historically weaker signals — require higher conviction to enter
@@ -642,94 +599,6 @@ class KalshiClient:
         self._http.close()
 
 # ---------------------------------------------------------------------------
-# External market data (Binance + Fear & Greed)
-# ---------------------------------------------------------------------------
-
-class ExternalData:
-    """Fetches Binance price momentum, funding rate, and Fear & Greed index."""
-
-    BINANCE_SPOT    = "https://api.binance.com/api/v3"
-    BINANCE_FUTURES = "https://fapi.binance.com/fapi/v1"
-    FEAR_GREED_URL  = "https://api.alternative.me/fng/?limit=1"
-
-    def __init__(self) -> None:
-        self._http = httpx.Client(timeout=5.0)
-        self._fg_cache: tuple[float, int] = (0.0, 50)  # (timestamp, value)
-
-    def price_and_volume(self, symbol: str, lookback: int = 10) -> Optional[dict]:
-        """
-        Return last-15min momentum + volume ratio vs recent average.
-        Uses 15m candles to match Kalshi contract timeframe.
-        lookback=10 means compare last candle volume to 10-candle average.
-        """
-        try:
-            r = self._http.get(
-                f"{self.BINANCE_SPOT}/klines",
-                params={"symbol": symbol, "interval": "15m", "limit": lookback + 1},
-            )
-            r.raise_for_status()
-            candles = r.json()
-            if len(candles) < 3:
-                return None
-
-            # Last completed candle (index -2), current forming candle (index -1)
-            last     = candles[-2]
-            baseline = candles[:-1]  # all but the forming candle
-
-            last_open   = float(last[1])
-            last_close  = float(last[4])
-            last_volume = float(last[5])
-            avg_volume  = sum(float(c[5]) for c in baseline) / len(baseline)
-
-            momentum_pct  = (last_close - last_open) / last_open * 100
-            volume_ratio  = last_volume / avg_volume if avg_volume > 0 else 1.0
-
-            return {"momentum_pct": momentum_pct, "volume_ratio": volume_ratio}
-        except Exception:
-            return None
-
-    def funding_rate(self, symbol: str) -> Optional[float]:
-        """Return latest perpetual funding rate. Positive = longs pay shorts."""
-        try:
-            r = self._http.get(
-                f"{self.BINANCE_FUTURES}/fundingRate",
-                params={"symbol": symbol, "limit": 1},
-            )
-            r.raise_for_status()
-            data = r.json()
-            if not data:
-                return None
-            return float(data[0]["fundingRate"])
-        except Exception:
-            return None
-
-    def fear_greed(self) -> int:
-        """Return Fear & Greed index (0=extreme fear, 100=extreme greed). Cached 10min."""
-        now = time.time()
-        if now - self._fg_cache[0] < 600:
-            return self._fg_cache[1]
-        try:
-            r = self._http.get(self.FEAR_GREED_URL)
-            r.raise_for_status()
-            value = int(r.json()["data"][0]["value"])
-            self._fg_cache = (now, value)
-            return value
-        except Exception:
-            return self._fg_cache[1]  # return cached on error
-
-    def confirm_entry(self, series: str, side: str, log: logging.LoggerAdapter) -> bool:
-        """
-        Returns True if external signals confirm the Kalshi momentum signal.
-        All external filters removed — Kalshi signal alone determines entry.
-        """
-
-        return True
-
-    def close(self) -> None:
-        self._http.close()
-
-
-# ---------------------------------------------------------------------------
 # Strategy helpers
 # ---------------------------------------------------------------------------
 
@@ -778,14 +647,12 @@ def current_mid(ob: OrderBook, side: str) -> int:
 
 def run_cycle(
     client: KalshiClient,
-    ext: ExternalData,
     conn: sqlite3.Connection,
     log: logging.LoggerAdapter,
     series: str,
     profile: str,
     ticker: str,
     expiry_ts: float,
-    contract_volume: float = 0.0,
     skip_wait: bool = False,
     scan_end_ts: Optional[float] = None,
 ) -> str:
@@ -819,18 +686,6 @@ def run_cycle(
 
     # Note: duplicate entry prevention is handled by series_worker's synchronous
     # 3-window flow. run_cycle no longer needs to check for prior trades.
-
-    # ---- Liquidity check: yes_ask + no_ask should be close to 100c ----
-    if series_is_live:
-        try:
-            ob_liq = client.get_orderbook(ticker, expiry_ts)
-            combined = (ob_liq.yes_ask or 0) + (ob_liq.no_ask or 0)
-        except Exception:
-            combined = 999
-        if combined > 120:
-            log.info(f"[{ticker}] Thin market: yes_ask+no_ask={combined}c > 120c — skipping")
-            return "no_entry"
-        log.info(f"[{ticker}] Liquidity OK: yes_ask+no_ask={combined}c")
 
     tte = expiry_ts - time.time()
     if tte <= TIME_STOP_SECONDS + 30:
@@ -878,8 +733,6 @@ def run_cycle(
                     continue
                 if ask_val > MOMENTUM_MAX_ENTRY_CENTS:
                     log.debug(f"[{ticker}] {side.upper()} signal but ask={ask_val}c > max {MOMENTUM_MAX_ENTRY_CENTS}c — skipping")
-                    continue
-                if not ext.confirm_entry(series, side, log):
                     continue
                 filled_side = side
                 signal_ask  = ask_val
@@ -1355,16 +1208,8 @@ def recover_open_position(client: KalshiClient, series: str, log: logging.Logger
             continue
         side = "yes" if qty > 0 else "no"
         qty  = abs(qty)
-        log.warning(f"[{ticker}] Found unmanaged {side.upper()} x{qty} position on startup — placing SL @ {STOP_LOSS_CENTS}c")
+        log.warning(f"[{ticker}] Found unmanaged {side.upper()} x{qty} position on startup — skipping SL placement (resting limit does not function as SL on Kalshi)")
         recovered.add(ticker)
-        try:
-            sl_id = client.place_order(ticker, side, "limit", STOP_LOSS_CENTS, action="sell")
-            if sl_id:
-                log.info(f"[{ticker}] Startup SL placed @ {STOP_LOSS_CENTS}c  id={sl_id}")
-            else:
-                log.warning(f"[{ticker}] Startup SL placement failed")
-        except Exception as e:
-            log.warning(f"[{ticker}] Startup SL error: {e}")
     return recovered
 
 
@@ -1377,7 +1222,6 @@ def series_worker(
 ) -> None:
     log = get_log(series)
     client = KalshiClient(auth)
-    ext    = ExternalData()
     known_ticker: Optional[str] = None
 
     log.info(f"Worker started — series={series} profile={profile}")
@@ -1407,7 +1251,7 @@ def series_worker(
             time.sleep(MARKET_POLL_INTERVAL)
             continue
 
-        ticker, expiry_ts, contract_volume = result
+        ticker, expiry_ts, _ = result
         tte = expiry_ts - time.time()
 
         if ticker == known_ticker:
@@ -1420,7 +1264,7 @@ def series_worker(
             time.sleep(MARKET_POLL_INTERVAL)
             continue
 
-        log.info(f"New contract: {ticker}  tte={tte:.0f}s  volume={contract_volume:.0f}")
+        log.info(f"New contract: {ticker}  tte={tte:.0f}s")
         known_ticker = ticker
 
         # Bracket profiles use their own cycle function
@@ -1475,8 +1319,8 @@ def series_worker(
             while not stop_event.is_set():
                 try:
                     status = run_cycle(
-                        client, ext, conn, log, series, profile,
-                        ticker, expiry_ts, contract_volume,
+                        client, conn, log, series, profile,
+                        ticker, expiry_ts,
                         skip_wait=True,          # timing managed here in series_worker
                         scan_end_ts=scan_end,
                     )
@@ -1501,7 +1345,6 @@ def series_worker(
             sleep_until_next_contract(log)
 
     client.close()
-    ext.close()
     log.info("Worker stopped.")
 
 # ---------------------------------------------------------------------------
@@ -1899,9 +1742,7 @@ def main() -> None:
     global _root_log, ACTIVE_PROFILE
     global MOMENTUM_THRESHOLD_CENTS, MOMENTUM_MIN_ENTRY_CENTS, MOMENTUM_MAX_ENTRY_CENTS, ENTRY_WAIT_SECONDS
     global SCAN_WINDOW_SECONDS, TAKE_PROFIT_CENTS, STOP_LOSS_CENTS, SL_OFFSET_CENTS, SL_ALERT_CENTS
-    global TIME_STOP_SECONDS, PRICE_MOMENTUM_MIN_PCT, VOLUME_RATIO_MIN
-    global FUNDING_RATE_MAX, FEAR_GREED_EXTREME, MIN_RR_RATIO
-    global TRAILING_STOP_ACTIVATE, DAILY_LOSS_LIMIT_CENTS, LIVE_MODE, LIVE_SERIES
+    global TIME_STOP_SECONDS, DAILY_LOSS_LIMIT_CENTS, LIVE_MODE, LIVE_SERIES
 
     parser = argparse.ArgumentParser(description="Kalshi Multi-Market Paper Scalper")
     parser.add_argument(
@@ -1939,12 +1780,6 @@ def main() -> None:
     SL_OFFSET_CENTS          = profile_cfg.get("SL_OFFSET_CENTS",          SL_OFFSET_CENTS)
     SL_ALERT_CENTS           = profile_cfg.get("SL_ALERT_CENTS",           SL_ALERT_CENTS)
     TIME_STOP_SECONDS        = profile_cfg.get("TIME_STOP_SECONDS",        TIME_STOP_SECONDS)
-    PRICE_MOMENTUM_MIN_PCT   = profile_cfg.get("PRICE_MOMENTUM_MIN_PCT",   PRICE_MOMENTUM_MIN_PCT)
-    VOLUME_RATIO_MIN         = profile_cfg.get("VOLUME_RATIO_MIN",         VOLUME_RATIO_MIN)
-    FUNDING_RATE_MAX         = profile_cfg.get("FUNDING_RATE_MAX",         FUNDING_RATE_MAX)
-    FEAR_GREED_EXTREME       = profile_cfg.get("FEAR_GREED_EXTREME",       FEAR_GREED_EXTREME)
-    MIN_RR_RATIO             = profile_cfg.get("MIN_RR_RATIO",             MIN_RR_RATIO)
-    TRAILING_STOP_ACTIVATE   = profile_cfg.get("TRAILING_STOP_ACTIVATE",   TRAILING_STOP_ACTIVATE)
     DAILY_LOSS_LIMIT_CENTS   = profile_cfg["DAILY_LOSS_LIMIT_CENTS"]
     LIVE_MODE                = args.live or os.environ.get("LIVE_MODE", "false").lower() == "true"
     raw_live_series          = args.live_series or os.environ.get("LIVE_SERIES", "")
@@ -1992,8 +1827,7 @@ def main() -> None:
     else:
         log.info(f"Signal   : bid >= {MOMENTUM_THRESHOLD_CENTS}c after {ENTRY_WAIT_SECONDS}s  entry_window={MOMENTUM_MIN_ENTRY_CENTS}–{MOMENTUM_MAX_ENTRY_CENTS}c")
         log.info(f"Exit     : TP={TAKE_PROFIT_CENTS}c  SL={STOP_LOSS_CENTS}c  TimeStop={TIME_STOP_SECONDS}s")
-        log.info(f"Filters  : momentum>={PRICE_MOMENTUM_MIN_PCT}%  vol>={VOLUME_RATIO_MIN}x  funding<={FUNDING_RATE_MAX}")
-        log.info(f"Risk     : daily_limit={DAILY_LOSS_LIMIT_CENTS}c  trailing_stop=+{TRAILING_STOP_ACTIVATE}c")
+        log.info(f"Risk     : daily_limit={DAILY_LOSS_LIMIT_CENTS}c")
         log.info(f"Orders   : limit@ask-1c  timeout={LIMIT_ORDER_TIMEOUT}s  then market fallback")
     log.info(f"Report   : http://0.0.0.0:{port}/report")
     log.info("=" * 60)
