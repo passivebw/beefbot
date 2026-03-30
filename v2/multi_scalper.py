@@ -231,7 +231,10 @@ def _check_and_reset_daily() -> None:
             _daily_pnl_date  = today
 
 def circuit_breaker_open() -> bool:
-    """Return True if daily loss limit has been hit — no new trades."""
+    """Return True if daily loss limit has been hit — no new trades.
+    Always returns False in paper mode (circuit breaker is live-only)."""
+    if not LIVE_MODE:
+        return False
     _check_and_reset_daily()
     with _daily_pnl_lock:
         return _daily_pnl_cents <= DAILY_LOSS_LIMIT_CENTS
@@ -1307,7 +1310,12 @@ def run_bracket_cycle(
         if exit_reason == "expired":
             break
 
-        # Loop back if still within window — sleep briefly to avoid rate limits
+        # Paper mode: one trade per contract — no re-entry loop
+        if not series_is_live:
+            log.info(f"[{ticker}] PAPER: one trade per contract — done")
+            break
+
+        # Live mode: loop back if still within window
         if time.time() < window_end_ts:
             log.info(f"[{ticker}] Trade settled — waiting 5s before next bracket round")
             time.sleep(5)
