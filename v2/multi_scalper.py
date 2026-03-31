@@ -144,6 +144,8 @@ PROFILES: dict[str, dict] = {
         "BRACKET_ENTRY_CENTS":            36,
         "BRACKET_TP_ALERT_CENTS":         55,
         "BRACKET_SELL_CENTS":             52,
+        "BRACKET_SL_CENTS":               22,   # market sell if mid drops here (-14c max loss)
+        "BRACKET_SL_ALERT_CENTS":         28,   # switch to 1s polling when mid drops here
         "BRACKET_WINDOW_START_SECONDS":    0,
         "BRACKET_WINDOW_DURATION_SECONDS": 300,
         "DAILY_LOSS_LIMIT_CENTS":        -500,
@@ -153,6 +155,8 @@ PROFILES: dict[str, dict] = {
         "BRACKET_ENTRY_CENTS":            45,
         "BRACKET_TP_ALERT_CENTS":         64,
         "BRACKET_SELL_CENTS":             61,
+        "BRACKET_SL_CENTS":               30,   # market sell if mid drops here (-15c max loss)
+        "BRACKET_SL_ALERT_CENTS":         36,   # switch to 1s polling when mid drops here
         "BRACKET_WINDOW_START_SECONDS":    0,
         "BRACKET_WINDOW_DURATION_SECONDS": 300,
         "DAILY_LOSS_LIMIT_CENTS":        -500,
@@ -1000,7 +1004,8 @@ def run_bracket_cycle(
     entry_c        = cfg["BRACKET_ENTRY_CENTS"]
     tp_alert_c     = cfg["BRACKET_TP_ALERT_CENTS"]
     sell_c         = cfg["BRACKET_SELL_CENTS"]
-    sl_c           = cfg.get("BRACKET_SL_CENTS", None)   # None = no SL
+    sl_c           = cfg.get("BRACKET_SL_CENTS", None)       # None = no SL
+    sl_alert_c     = cfg.get("BRACKET_SL_ALERT_CENTS", None) # fast-poll trigger
     win_start_off  = cfg["BRACKET_WINDOW_START_SECONDS"]
     win_duration   = cfg["BRACKET_WINDOW_DURATION_SECONDS"]
 
@@ -1127,7 +1132,8 @@ def run_bracket_cycle(
         # ---- Phase 2: monitor for TP fill and SL (active mid watch) ----
         exit_cents:  int = 0
         exit_reason: str = "expired"
-        sl_active = sl_c is not None  # SL only for risky-high profiles
+        sl_active    = sl_c is not None  # SL only when BRACKET_SL_CENTS is set
+        fast_polling = False             # switched on when mid drops near SL alert
 
         while True:
             # Check if resting TP order filled
@@ -1160,6 +1166,11 @@ def run_bracket_cycle(
                 exit_cents  = sell_c
                 log.info(f"[{ticker}] PAPER TP  bid={bid}c >= {tp_alert_c}c — exit@{sell_c}c")
                 break
+
+            # SL alert: switch to 1s polling when mid drops near SL threshold
+            if sl_active and sl_alert_c is not None and not fast_polling and mid <= sl_alert_c:
+                fast_polling = True
+                log.info(f"[{ticker}] SL alert  mid={mid}c <= {sl_alert_c}c — switching to 1s polling")
 
             # SL: mid dropped — cancel TP order then market sell (live) / exit at sl_c (paper)
             if sl_active and mid <= sl_c:
@@ -1196,7 +1207,7 @@ def run_bracket_cycle(
                 log.info(f"[{ticker}] EXPIRED  exit@{exit_cents}c")
                 break
 
-            time.sleep(2)
+            time.sleep(1 if fast_polling else 2)
 
         pnl_cents = exit_cents - entry_filled
         sign = "+" if pnl_cents >= 0 else ""
@@ -1301,9 +1312,7 @@ def series_worker(
 
         if result is None:
             log.debug("No suitable contract found")
-            # Bracket profiles poll faster when near contract open to minimize placement delay
-            interval = 0.5 if profile in BRACKET_PROFILE_NAMES else MARKET_POLL_INTERVAL
-            time.sleep(interval)
+            time.sleep(MARKET_POLL_INTERVAL)
             continue
 
         ticker, expiry_ts, _ = result
@@ -1311,8 +1320,7 @@ def series_worker(
 
         if ticker == known_ticker:
             log.debug(f"Contract unchanged  tte={tte:.0f}s")
-            interval = 0.5 if profile in BRACKET_PROFILE_NAMES else MARKET_POLL_INTERVAL
-            time.sleep(interval)
+            time.sleep(MARKET_POLL_INTERVAL)
             continue
 
         if ticker in traded_tickers:
@@ -1330,10 +1338,9 @@ def series_worker(
             except Exception as e:
                 log.error(f"Bracket cycle error: {e}", exc_info=True)
             if not stop_event.is_set():
-                # Sleep until 2 min before next contract open, then poll aggressively
-                # so we have the ticker the moment Kalshi makes it available (~40s before window)
-                sleep_until_next_contract(log, buffer_s=120)
-                log.info(f"Polling aggressively for next {series} contract...")
+                # Sleep until exactly the next 15-min boundary — contracts appear
+                # ~40s after the mark, so 2s polling from T+0 catches them at ~T+40s.
+                sleep_until_next_contract(log, buffer_s=0)
             continue
 
         # Momentum profiles: 3-window entry system
