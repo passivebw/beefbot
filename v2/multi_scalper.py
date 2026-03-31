@@ -105,7 +105,6 @@ PROFILES: dict[str, dict] = {
         "SL_ALERT_CENTS":           55,
         "TIME_STOP_SECONDS":        120,
         "DAILY_LOSS_LIMIT_CENTS":  -500,
-        "EXCLUDED_SERIES":          {"KXHYPE15M", "KXBNB15M"},
     },
     "og-risky": {
         "MOMENTUM_THRESHOLD_CENTS": 62,
@@ -148,7 +147,6 @@ PROFILES: dict[str, dict] = {
         "BRACKET_WINDOW_START_SECONDS":    0,
         "BRACKET_WINDOW_DURATION_SECONDS": 300,
         "DAILY_LOSS_LIMIT_CENTS":        -500,
-        "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
     "risky-mid": {
         "strategy":                       "bracket",
@@ -158,7 +156,6 @@ PROFILES: dict[str, dict] = {
         "BRACKET_WINDOW_START_SECONDS":    0,
         "BRACKET_WINDOW_DURATION_SECONDS": 300,
         "DAILY_LOSS_LIMIT_CENTS":        -500,
-        "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
     "risky-high-early": {
         "strategy":                       "bracket",
@@ -448,6 +445,24 @@ class KalshiAuth:
             "KALSHI-ACCESS-TIMESTAMP": ts,
             "KALSHI-ACCESS-SIGNATURE": base64.b64encode(sig).decode(),
         }
+
+# ---------------------------------------------------------------------------
+# Process-level API rate limiter — max 8 calls/second across all threads
+# ---------------------------------------------------------------------------
+
+_api_rate_lock    = threading.Lock()
+_api_last_call_ts = 0.0
+_API_MIN_INTERVAL = 1.0 / 8  # 125ms between calls = 8/s max
+
+def _api_throttle() -> None:
+    """Block until it is safe to make another API call."""
+    global _api_last_call_ts
+    with _api_rate_lock:
+        now  = time.time()
+        wait = _api_last_call_ts + _API_MIN_INTERVAL - now
+        if wait > 0:
+            time.sleep(wait)
+        _api_last_call_ts = time.time()
 
 # ---------------------------------------------------------------------------
 # Kalshi HTTP client
