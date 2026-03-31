@@ -1063,7 +1063,8 @@ def run_bracket_cycle(
                 break
 
         else:
-            # Paper: poll orderbook until ask drops to entry price
+            # Paper: simulate both resting limits — whichever ask drops to entry_c fills first
+            log.info(f"[{ticker}] PAPER: resting BUY limits YES@{entry_c}c and NO@{entry_c}c")
             while time.time() < window_end_ts:
                 try:
                     ob = client.get_orderbook(ticker, expiry_ts)
