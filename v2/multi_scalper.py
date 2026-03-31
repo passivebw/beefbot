@@ -1301,7 +1301,9 @@ def series_worker(
 
         if result is None:
             log.debug("No suitable contract found")
-            time.sleep(MARKET_POLL_INTERVAL)
+            # Bracket profiles poll faster when near contract open to minimize placement delay
+            interval = 0.5 if profile in BRACKET_PROFILE_NAMES else MARKET_POLL_INTERVAL
+            time.sleep(interval)
             continue
 
         ticker, expiry_ts, _ = result
@@ -1309,7 +1311,8 @@ def series_worker(
 
         if ticker == known_ticker:
             log.debug(f"Contract unchanged  tte={tte:.0f}s")
-            time.sleep(MARKET_POLL_INTERVAL)
+            interval = 0.5 if profile in BRACKET_PROFILE_NAMES else MARKET_POLL_INTERVAL
+            time.sleep(interval)
             continue
 
         if ticker in traded_tickers:
@@ -1327,7 +1330,10 @@ def series_worker(
             except Exception as e:
                 log.error(f"Bracket cycle error: {e}", exc_info=True)
             if not stop_event.is_set():
-                sleep_until_next_contract(log)
+                # Sleep until 2 min before next contract open, then poll aggressively
+                # so we have the ticker the moment Kalshi makes it available (~40s before window)
+                sleep_until_next_contract(log, buffer_s=120)
+                log.info(f"Polling aggressively for next {series} contract...")
             continue
 
         # Momentum profiles: 3-window entry system
