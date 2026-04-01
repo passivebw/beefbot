@@ -1047,15 +1047,33 @@ def run_bracket_cycle(
         series_is_live = LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)
 
         if series_is_live:
-            # Live: place resting limit BUY on BOTH sides immediately.
-            # Only one can fill (YES+NO=100c always). Poll until one fills,
-            # then cancel the other.
-            yes_oid = client.place_order(ticker, "yes", "limit", entry_c)
-            no_oid  = client.place_order(ticker, "no",  "limit", entry_c)
-            log.info(f"[{ticker}] Resting BUY limits placed: YES@{entry_c}c id={yes_oid}  NO@{entry_c}c id={no_oid}")
+            # Live: poll orderbook until one side's ask reaches entry_c,
+            # THEN place a limit BUY on that side only (prevents both sides
+            # filling immediately as takers when market is undecided).
+            yes_oid: Optional[str] = None
+            no_oid:  Optional[str] = None
 
-            while time.time() < window_end_ts:
-                time.sleep(2)
+            while time.time() < window_end_ts and not filled_side:
+                try:
+                    ob = client.get_orderbook(ticker, expiry_ts)
+                except Exception as e:
+                    log.warning(f"[{ticker}] Orderbook error in entry scan: {e}")
+                    time.sleep(2)
+                    continue
+
+                yes_ask = ob.yes_ask or 0
+                no_ask  = ob.no_ask  or 0
+                log.debug(f"[{ticker}] live scan: yes_ask={yes_ask}c no_ask={no_ask}c target<={entry_c}c")
+
+                # Only place order when one side's ask is actually at/near entry_c
+                if yes_ask > 0 and yes_ask <= entry_c and not yes_oid:
+                    yes_oid = client.place_order(ticker, "yes", "limit", entry_c)
+                    log.info(f"[{ticker}] YES ask={yes_ask}c <= {entry_c}c — placed BUY limit id={yes_oid}")
+                if no_ask > 0 and no_ask <= entry_c and not no_oid:
+                    no_oid = client.place_order(ticker, "no", "limit", entry_c)
+                    log.info(f"[{ticker}] NO ask={no_ask}c <= {entry_c}c — placed BUY limit id={no_oid}")
+
+                # Check fill status of any placed orders
                 for side, oid in [("yes", yes_oid), ("no", no_oid)]:
                     if not oid:
                         continue
@@ -1066,15 +1084,15 @@ def run_bracket_cycle(
                     if status == "filled":
                         filled_side  = side
                         entry_filled = fill_p
-                        # Cancel the other side
                         other_oid = no_oid if side == "yes" else yes_oid
                         if other_oid:
                             client.cancel_order(other_oid)
                         break
-                if filled_side:
-                    break
 
-            # Window closed with no fill — cancel both and move on
+                if not filled_side:
+                    time.sleep(2)
+
+            # Window closed with no fill — cancel any open orders
             if not filled_side:
                 for oid in [yes_oid, no_oid]:
                     if oid:
@@ -1227,18 +1245,9 @@ def run_bracket_cycle(
         if exit_reason == "expired":
             break
 
-        # Paper mode: one trade per contract — no re-entry loop
-        if not series_is_live:
-            log.info(f"[{ticker}] PAPER: one trade per contract — done")
-            break
-
-        # Live mode: loop back if still within window
-        if time.time() < window_end_ts:
-            log.info(f"[{ticker}] Trade settled — waiting 5s before next bracket round")
-            time.sleep(5)
-        else:
-            log.info(f"[{ticker}] Bracket window closed — no more rounds")
-            break
+        # One trade per contract in both paper and live mode
+        log.info(f"[{ticker}] One trade per contract — done")
+        break
 
 
 # ---------------------------------------------------------------------------
