@@ -565,10 +565,12 @@ class KalshiClient:
             "type": order_type,
             "count": CONTRACTS,
         }
-        if order_type == "limit" and price_cents is not None:
+        if price_cents is not None:
             # Kalshi treats yes_price as the canonical price field.
             # For NO orders, send yes_price = 100 - no_price so the limit
             # is correctly interpreted (sending no_price causes taker fills).
+            # Market sells also require a price field -- send yes_price=1 to
+            # guarantee fill at best available bid.
             if side == "yes":
                 body["yes_price"] = price_cents
             else:
