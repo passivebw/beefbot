@@ -1065,13 +1065,15 @@ def run_bracket_cycle(
                 no_ask  = ob.no_ask  or 0
                 log.debug(f"[{ticker}] live scan: yes_ask={yes_ask}c no_ask={no_ask}c target<={entry_c}c")
 
-                # Only place order when one side's ask is actually at/near entry_c
-                if yes_ask > 0 and yes_ask <= entry_c and not yes_oid:
+                # Only place order when ask is within 5c of entry (prevents fills
+                # when market has already moved far away from entry price)
+                entry_min = entry_c - 5
+                if yes_ask > 0 and entry_min <= yes_ask <= entry_c and not yes_oid:
                     yes_oid = client.place_order(ticker, "yes", "limit", entry_c)
-                    log.info(f"[{ticker}] YES ask={yes_ask}c <= {entry_c}c — placed BUY limit id={yes_oid}")
-                if no_ask > 0 and no_ask <= entry_c and not no_oid:
+                    log.info(f"[{ticker}] YES ask={yes_ask}c in band [{entry_min},{entry_c}] — placed BUY limit id={yes_oid}")
+                if no_ask > 0 and entry_min <= no_ask <= entry_c and not no_oid:
                     no_oid = client.place_order(ticker, "no", "limit", entry_c)
-                    log.info(f"[{ticker}] NO ask={no_ask}c <= {entry_c}c — placed BUY limit id={no_oid}")
+                    log.info(f"[{ticker}] NO ask={no_ask}c in band [{entry_min},{entry_c}] — placed BUY limit id={no_oid}")
 
                 # Check fill status of any placed orders
                 for side, oid in [("yes", yes_oid), ("no", no_oid)]:
