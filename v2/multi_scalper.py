@@ -1200,7 +1200,7 @@ def run_bracket_cycle(
                         client.cancel_order(tp_order_id)
                         tp_order_id = None
                     try:
-                        sell_id = client.place_order(ticker, filled_side, "market", None, action="sell")
+                        sell_id = client.place_order(ticker, filled_side, "market", 1, action="sell")
                         actual = None
                         if sell_id:
                             for _ in range(15):
