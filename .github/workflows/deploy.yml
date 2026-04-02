@@ -40,9 +40,12 @@ jobs:
             # risky-high-late - port 8006 - PAPER all 7 markets
             printf '[Unit]\nDescription=Kalshi Bot (risky-high-late) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile risky-high-late --port 8006\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/risky-high-late.log\nStandardError=append:/opt/kalshi-bot/logs/risky-high-late.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-risky-high-late.service
 
+            # late-sniper - port 8007 - PAPER BTC+5 markets (excl HYPE+BNB)
+            printf '[Unit]\nDescription=Kalshi Bot (late-sniper) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile late-sniper --port 8007\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/late-sniper.log\nStandardError=append:/opt/kalshi-bot/logs/late-sniper.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-late-sniper.service
+
             systemctl daemon-reload
-            systemctl enable kalshi-bot-moderate kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-risky-high-late
-            systemctl restart kalshi-bot-moderate kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-risky-high-late
+            systemctl enable kalshi-bot-moderate kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-risky-high-late kalshi-bot-late-sniper
+            systemctl restart kalshi-bot-moderate kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-risky-high-late kalshi-bot-late-sniper
 
             echo "Deploy complete: $(date)"
-            systemctl is-active kalshi-bot-moderate kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-risky-high-late
+            systemctl is-active kalshi-bot-moderate kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-risky-high-late kalshi-bot-late-sniper

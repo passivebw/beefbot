@@ -183,6 +183,26 @@ PROFILES: dict[str, dict] = {
         "DAILY_LOSS_LIMIT_CENTS":        -500,
         "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
+    # ------------------------------------------------------------------
+    # late-sniper — inspired by Telegram community data from competing
+    # bot users. Enter only when one side is already at 82-87c (strong
+    # conviction), last 4 min of contract. Both YES+NO attempted but
+    # only the dominant side will be in the entry band.
+    # Entry band: [82c, 87c]. TP at 93c (+6c). SL at 70c (-17c max).
+    # BTC-only initially — skip low-volume alts.
+    # ------------------------------------------------------------------
+    "late-sniper": {
+        "strategy":                       "bracket",
+        "BRACKET_ENTRY_CENTS":            87,
+        "BRACKET_TP_ALERT_CENTS":         96,
+        "BRACKET_SELL_CENTS":             93,    # +6c above entry
+        "BRACKET_SL_CENTS":               70,    # -17c max loss
+        "BRACKET_SL_ALERT_CENTS":         76,    # switch to 1s polling here
+        "BRACKET_WINDOW_START_SECONDS":   660,   # start at 11 min in (last 4 min)
+        "BRACKET_WINDOW_DURATION_SECONDS": 240,  # 4-min window
+        "DAILY_LOSS_LIMIT_CENTS":        -500,
+        "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
+    },
 }
 
 # Active profile name — set by --profile arg in main()
@@ -1119,11 +1139,14 @@ def run_bracket_cycle(
                 no_ask  = ob.no_ask  or 0
                 log.debug(f"[{ticker}] bracket scan r{round_num}: yes_ask={yes_ask}c no_ask={no_ask}c target<={entry_c}c")
 
-                if yes_ask > 0 and yes_ask <= entry_c:
+                # Same entry band as live mode: only fill when ask is within
+                # 5c of entry price (prevents spurious fills at far-off prices)
+                entry_min = entry_c - 5
+                if yes_ask > 0 and entry_min <= yes_ask <= entry_c:
                     filled_side  = "yes"
                     entry_filled = yes_ask
                     break
-                if no_ask > 0 and no_ask <= entry_c:
+                if no_ask > 0 and entry_min <= no_ask <= entry_c:
                     filled_side  = "no"
                     entry_filled = no_ask
                     break
