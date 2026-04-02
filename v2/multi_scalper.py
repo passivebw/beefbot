@@ -193,7 +193,7 @@ PROFILES: dict[str, dict] = {
     # ------------------------------------------------------------------
     "late-sniper": {
         "strategy":                       "bracket",
-        "BRACKET_ENTRY_CENTS":            87,
+        "BRACKET_ENTRY_CENTS":            92,
         "BRACKET_TP_ALERT_CENTS":         98,
         "BRACKET_SELL_CENTS":             97,    # +13c above avg entry (was 93c)
         "BRACKET_SL_CENTS":               80,    # -7c max loss (tightened from 70c per Jim Forrester data)
