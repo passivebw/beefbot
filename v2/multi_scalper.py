@@ -995,7 +995,11 @@ def run_cycle(
 # Bracket strategy (risky-low / risky-mid / risky-high-early / risky-high-late)
 # ---------------------------------------------------------------------------
 
-BRACKET_PROFILE_NAMES = {"risky-low", "risky-mid", "risky-high-early", "risky-high-late"}
+# Derived from PROFILES — any profile with strategy="bracket" is a bracket profile.
+# Never needs manual updating when new bracket profiles are added.
+BRACKET_PROFILE_NAMES = {
+    name for name, cfg in PROFILES.items() if cfg.get("strategy") == "bracket"
+}
 
 
 def run_bracket_cycle(
