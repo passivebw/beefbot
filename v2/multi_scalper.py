@@ -194,8 +194,8 @@ PROFILES: dict[str, dict] = {
     "late-sniper": {
         "strategy":                       "bracket",
         "BRACKET_ENTRY_CENTS":            87,
-        "BRACKET_TP_ALERT_CENTS":         96,
-        "BRACKET_SELL_CENTS":             93,    # +6c above entry
+        "BRACKET_TP_ALERT_CENTS":         98,
+        "BRACKET_SELL_CENTS":             97,    # +13c above avg entry (was 93c)
         "BRACKET_SL_CENTS":               70,    # -17c max loss
         "BRACKET_SL_ALERT_CENTS":         76,    # switch to 1s polling here
         "BRACKET_WINDOW_START_SECONDS":   660,   # start at 11 min in (last 4 min)
