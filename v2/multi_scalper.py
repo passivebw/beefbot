@@ -1605,13 +1605,13 @@ def stats_reporter(conn: sqlite3.Connection, stop_event: threading.Event) -> Non
             log.error(f"Stats error: {e}")
 
 # ---------------------------------------------------------------------------
-# Scheduled Discord summary (8am, noon, 5pm, 10pm ET)
+# Scheduled Discord summary (8am and 8pm ET, all profiles, last 12h)
 # ---------------------------------------------------------------------------
 
-_SUMMARY_HOURS_ET = {8, 12, 17, 22}
+_SUMMARY_HOURS_ET = {8, 20}
 
 def discord_summary_scheduler(conn: sqlite3.Connection, stop_event: threading.Event) -> None:
-    """Fire a Discord summary at 8am, 12pm, 5pm, 10pm ET — once per hour."""
+    """Fire a Discord summary at 8am and 8pm ET showing last 12h across all profiles."""
     fired_hours: set[str] = set()  # "YYYY-MM-DD-HH" keys to prevent double-fire
     while not stop_event.is_set():
         time.sleep(60)
@@ -1624,22 +1624,41 @@ def discord_summary_scheduler(conn: sqlite3.Connection, stop_event: threading.Ev
             if key in fired_hours:
                 continue
 
-            # Pull 24h stats for this profile only
+            et_time = now_et.strftime("%I:%M %p ET")
+            label   = "Morning" if hour == 8 else "Evening"
+
+            # Pull last 12h stats for every profile
             rows = conn.execute(
-                """SELECT COUNT(*) as trades,
+                """SELECT profile,
+                          COUNT(*) as trades,
                           SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins,
                           SUM(pnl_cents) as pnl
                    FROM bracket_trade_log
-                   WHERE created_at >= datetime('now', '-24 hours')
-                     AND profile = ?""",
-                (ACTIVE_PROFILE,)
-            ).fetchone()
-            trades = rows[0] or 0
-            wins   = rows[1] or 0
-            pnl    = rows[2] or 0
-            tg_daily_summary(ACTIVE_PROFILE, trades, wins, pnl)
+                   WHERE created_at >= datetime('now', '-12 hours')
+                   GROUP BY profile
+                   ORDER BY pnl DESC"""
+            ).fetchall()
+
+            if not rows:
+                fired_hours.add(key)
+                continue
+
+            total_pnl = sum(r[3] or 0 for r in rows)
+            icon = "📈" if total_pnl >= 0 else "📉"
+            lines = [f"{icon} **{label} Summary** | {et_time} | Last 12h\n"]
+            for profile, trades, wins, pnl in rows:
+                trades = trades or 0
+                wins   = wins or 0
+                pnl    = pnl or 0
+                wp = wins / trades * 100 if trades else 0
+                p_icon = "✅" if pnl > 0 else "❌" if pnl < 0 else "➖"
+                lines.append(
+                    f"{p_icon} **{profile}** — {trades} trades | {wp:.0f}% win | {pnl:+}c (${pnl/100:+.2f})"
+                )
+            lines.append(f"\n**Combined: {total_pnl:+}c (${total_pnl/100:+.2f})**")
+            _send_discord("\n".join(lines))
+
             fired_hours.add(key)
-            # Prune old keys to avoid unbounded growth
             if len(fired_hours) > 50:
                 fired_hours = set(list(fired_hours)[-20:])
         except Exception as e:
