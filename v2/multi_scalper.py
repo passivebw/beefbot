@@ -1281,10 +1281,10 @@ def run_bracket_cycle(
 # Per-series worker thread
 # ---------------------------------------------------------------------------
 
-def recover_open_position(client: KalshiClient, series: str, log: logging.LoggerAdapter) -> set:
-    """On startup, check Kalshi for any open position in this series and place SL if found.
-    Returns set of tickers with active positions so worker can add them to traded_tickers."""
-    recovered: set[str] = set()
+def recover_open_position(client: KalshiClient, series: str, log: logging.LoggerAdapter) -> dict:
+    """On startup, check Kalshi for any open position in this series.
+    Returns dict of ticker -> (side, qty) for positions that need monitoring."""
+    recovered: dict[str, tuple[str, int]] = {}
     if not (LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)):
         return recovered
     try:
@@ -1308,9 +1308,105 @@ def recover_open_position(client: KalshiClient, series: str, log: logging.Logger
             continue
         side = "yes" if qty > 0 else "no"
         qty  = abs(qty)
-        log.warning(f"[{ticker}] Found unmanaged {side.upper()} x{qty} position on startup — skipping SL placement (resting limit does not function as SL on Kalshi)")
-        recovered.add(ticker)
+        log.warning(f"[{ticker}] Found unmanaged {side.upper()} x{qty} position on startup — will resume monitoring")
+        recovered[ticker] = (side, qty)
     return recovered
+
+
+def resume_live_monitor(
+    client: KalshiClient,
+    log: logging.LoggerAdapter,
+    ticker: str,
+    side: str,
+    expiry_ts: float,
+    cfg: dict,
+) -> None:
+    """Resume monitoring an existing live position after a crash/restart.
+    Places a fresh TP limit sell and runs the SL watch loop — skips entry phase."""
+    sell_c     = cfg.get("BRACKET_SELL_CENTS", 87)
+    sl_c       = cfg.get("BRACKET_SL_CENTS", None)
+    sl_alert_c = cfg.get("BRACKET_SL_ALERT_CENTS", None)
+
+    log.info(f"[{ticker}] RESUME MONITOR  side={side.upper()}  TP={sell_c}c  SL={sl_c}c")
+
+    # Place resting TP limit sell
+    tp_order_id: Optional[str] = None
+    try:
+        tp_order_id = client.place_order(ticker, side, "limit", sell_c, action="sell")
+        if tp_order_id:
+            log.info(f"[{ticker}] Recovery TP SELL placed @ {sell_c}c  id={tp_order_id}")
+        else:
+            log.warning(f"[{ticker}] Recovery TP order returned no ID")
+    except Exception as e:
+        log.warning(f"[{ticker}] Recovery TP order error: {e}")
+
+    # Monitor loop — same logic as Phase 2 in run_bracket_cycle
+    exit_cents:  int = 0
+    exit_reason: str = "expired"
+    sl_active    = sl_c is not None
+    fast_polling = False
+
+    while True:
+        if tp_order_id:
+            try:
+                tp_status, tp_filled_price = client.get_order_status(tp_order_id, side)
+                if tp_status == "filled":
+                    exit_reason = "take_profit"
+                    exit_cents  = tp_filled_price
+                    tp_order_id = None
+                    log.info(f"[{ticker}] Recovery TP FILLED @ {exit_cents}c")
+                    break
+            except Exception:
+                pass
+
+        try:
+            ob = client.get_orderbook(ticker, expiry_ts)
+        except Exception as e:
+            log.warning(f"[{ticker}] Orderbook error in recovery monitor: {e}")
+            time.sleep(2)
+            continue
+
+        tte = expiry_ts - time.time()
+        mid = ob.mid_yes if side == "yes" else (100 - ob.mid_yes)
+
+        if sl_active and sl_alert_c is not None and not fast_polling and mid <= sl_alert_c:
+            fast_polling = True
+            log.info(f"[{ticker}] SL alert  mid={mid}c <= {sl_alert_c}c — switching to 1s polling")
+
+        if sl_active and mid <= sl_c:
+            exit_reason = "stop_loss"
+            if tp_order_id:
+                client.cancel_order(tp_order_id)
+                tp_order_id = None
+            try:
+                sell_id = client.place_order(ticker, side, "market", 1, action="sell")
+                actual = None
+                if sell_id:
+                    for _ in range(15):
+                        time.sleep(2)
+                        status, fill_p = client.get_order_status(sell_id, side)
+                        if status == "filled":
+                            actual = fill_p
+                            break
+                exit_cents = actual if actual is not None else mid
+            except Exception as e:
+                log.warning(f"[{ticker}] Recovery SL market sell error: {e}")
+                exit_cents = mid
+            log.info(f"[{ticker}] STOP_LOSS  mid={mid}c <= {sl_c}c — exit@{exit_cents}c")
+            break
+
+        if tte <= 0:
+            exit_cents  = mid
+            exit_reason = "expired"
+            if tp_order_id:
+                client.cancel_order(tp_order_id)
+                tp_order_id = None
+            log.info(f"[{ticker}] EXPIRED  exit@{exit_cents}c")
+            break
+
+        time.sleep(1 if fast_polling else 2)
+
+    log.info(f"[{ticker}] RECOVERY CLOSED  side={side}  exit={exit_cents}c  reason={exit_reason}")
 
 
 def series_worker(
@@ -1336,7 +1432,8 @@ def series_worker(
     # In-memory guard: tickers we've already entered (or attempted) this session.
     # Prevents re-entry even if the Kalshi position check fails.
     # Seeded with any positions recovered on startup so restarts don't double-enter.
-    traded_tickers: set[str] = recover_open_position(client, series, log)
+    recovered_positions: dict[str, tuple[str, int]] = recover_open_position(client, series, log)
+    traded_tickers: set[str] = set(recovered_positions.keys())
 
     while not stop_event.is_set():
         try:
@@ -1360,8 +1457,20 @@ def series_worker(
             continue
 
         if ticker in traded_tickers:
-            log.warning(f"[{ticker}] Already traded this contract this session — skipping")
-            time.sleep(MARKET_POLL_INTERVAL)
+            if ticker in recovered_positions:
+                # Crash recovery: resume monitoring the existing open position
+                side, qty = recovered_positions.pop(ticker)
+                log.warning(f"[{ticker}] Recovered {side.upper()} x{qty} position — resuming TP/SL monitor")
+                cfg = PROFILES.get(profile, {})
+                try:
+                    resume_live_monitor(client, log, ticker, side, expiry_ts, cfg)
+                except Exception as e:
+                    log.error(f"[{ticker}] Resume monitor error: {e}", exc_info=True)
+                if not stop_event.is_set() and profile in BRACKET_PROFILE_NAMES:
+                    sleep_until_next_contract(log, buffer_s=0)
+            else:
+                log.warning(f"[{ticker}] Already traded this contract this session — skipping")
+                time.sleep(MARKET_POLL_INTERVAL)
             continue
 
         log.info(f"New contract: {ticker}  tte={tte:.0f}s")
