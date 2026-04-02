@@ -1627,8 +1627,8 @@ def discord_summary_scheduler(conn: sqlite3.Connection, stop_event: threading.Ev
             et_time = now_et.strftime("%I:%M %p ET")
             label   = "Morning" if hour == 8 else "Evening"
 
-            # Pull last 12h stats for every profile
-            rows = conn.execute(
+            # Pull last 12h stats by profile
+            profile_rows = conn.execute(
                 """SELECT profile,
                           COUNT(*) as trades,
                           SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins,
@@ -1639,22 +1639,51 @@ def discord_summary_scheduler(conn: sqlite3.Connection, stop_event: threading.Ev
                    ORDER BY pnl DESC"""
             ).fetchall()
 
-            if not rows:
+            if not profile_rows:
                 fired_hours.add(key)
                 continue
 
-            total_pnl = sum(r[3] or 0 for r in rows)
+            # Pull last 12h stats by profile + market
+            mkt_rows = conn.execute(
+                """SELECT profile, series,
+                          COUNT(*) as trades,
+                          SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins,
+                          SUM(pnl_cents) as pnl
+                   FROM bracket_trade_log
+                   WHERE created_at >= datetime('now', '-12 hours')
+                   GROUP BY profile, series
+                   ORDER BY profile, pnl DESC"""
+            ).fetchall()
+
+            # Index market rows by profile
+            from collections import defaultdict
+            mkt_by_profile: dict = defaultdict(list)
+            for profile, series, t, w, p in mkt_rows:
+                short = series.replace("KX", "").replace("15M", "")  # e.g. BTC, ETH
+                mkt_by_profile[profile].append((short, t or 0, w or 0, p or 0))
+
+            total_pnl = sum(r[3] or 0 for r in profile_rows)
             icon = "📈" if total_pnl >= 0 else "📉"
             lines = [f"{icon} **{label} Summary** | {et_time} | Last 12h\n"]
-            for profile, trades, wins, pnl in rows:
+
+            for profile, trades, wins, pnl in profile_rows:
                 trades = trades or 0
                 wins   = wins or 0
                 pnl    = pnl or 0
-                wp = wins / trades * 100 if trades else 0
+                wp     = wins / trades * 100 if trades else 0
                 p_icon = "✅" if pnl > 0 else "❌" if pnl < 0 else "➖"
                 lines.append(
-                    f"{p_icon} **{profile}** — {trades} trades | {wp:.0f}% win | {pnl:+}c (${pnl/100:+.2f})"
+                    f"{p_icon} **{profile}** — {trades}t | {wp:.0f}% win | {pnl:+}c (${pnl/100:+.2f})"
                 )
+                # Per-market breakdown (compact, one line)
+                mkts = mkt_by_profile.get(profile, [])
+                if mkts:
+                    mkt_parts = []
+                    for short, t, w, p in mkts:
+                        wp_m = w / t * 100 if t else 0
+                        mkt_parts.append(f"{short} {t}t {wp_m:.0f}% {p:+}c")
+                    lines.append("  " + " | ".join(mkt_parts))
+
             lines.append(f"\n**Combined: {total_pnl:+}c (${total_pnl/100:+.2f})**")
             _send_discord("\n".join(lines))
 
