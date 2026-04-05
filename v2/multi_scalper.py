@@ -177,7 +177,8 @@ PROFILES: dict[str, dict] = {
         "BRACKET_ENTRY_CENTS":            70,
         "BRACKET_TP_ALERT_CENTS":         90,
         "BRACKET_SELL_CENTS":             87,    # fallback; dynamic sell = ask-3c at alert time
-        "BRACKET_SL_CENTS":               50,    # SL: active mid monitor, market sell if hit
+        "BRACKET_SL_CENTS":               60,    # tightened from 50c (-10c max loss)
+        "BRACKET_SL_ALERT_CENTS":         64,    # switch to 1s polling here
         "BRACKET_WINDOW_START_SECONDS":   420,   # start at 7 min from contract open
         "BRACKET_WINDOW_DURATION_SECONDS": 480,  # last 8 min of contract
         "DAILY_LOSS_LIMIT_CENTS":        -500,
@@ -193,7 +194,7 @@ PROFILES: dict[str, dict] = {
     # ------------------------------------------------------------------
     "late-sniper": {
         "strategy":                       "bracket",
-        "BRACKET_ENTRY_CENTS":            92,
+        "BRACKET_ENTRY_CENTS":            90,
         "BRACKET_TP_ALERT_CENTS":         98,
         "BRACKET_SELL_CENTS":             97,    # +13c above avg entry (was 93c)
         "BRACKET_SL_CENTS":               80,    # -7c max loss (tightened from 70c per Jim Forrester data)
