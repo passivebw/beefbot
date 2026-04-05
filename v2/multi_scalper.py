@@ -1222,7 +1222,9 @@ def run_bracket_cycle(
                 fast_polling = True
                 log.info(f"[{ticker}] SL alert  mid={mid}c <= {sl_alert_c}c — switching to 1s polling")
 
-            # SL: mid dropped — cancel TP order then market sell (live) / exit at sl_c (paper)
+            # SL: mid dropped — cancel TP order then limit sell at sl_c (live) / exit at sl_c (paper)
+            # Using limit sell instead of market sell prevents catastrophic fills
+            # when the market has gapped far below sl_c with no liquidity.
             if sl_active and mid <= sl_c:
                 exit_reason = "stop_loss"
                 if series_is_live:
@@ -1230,18 +1232,22 @@ def run_bracket_cycle(
                         client.cancel_order(tp_order_id)
                         tp_order_id = None
                     try:
-                        sell_id = client.place_order(ticker, filled_side, "market", 1, action="sell")
+                        sell_id = client.place_order(ticker, filled_side, "limit", sl_c, action="sell")
                         actual = None
                         if sell_id:
-                            for _ in range(15):
+                            for _ in range(30):
                                 time.sleep(2)
                                 status, fill_p = client.get_order_status(sell_id, filled_side)
                                 if status == "filled":
                                     actual = fill_p
                                     break
+                            if actual is None:
+                                # Limit didn't fill in 60s — cancel and accept mid as exit
+                                client.cancel_order(sell_id)
+                                actual = mid
                         exit_cents = actual if actual is not None else mid
                     except Exception as e:
-                        log.warning(f"[{ticker}] SL market sell error: {e}")
+                        log.warning(f"[{ticker}] SL limit sell error: {e}")
                         exit_cents = mid
                 else:
                     exit_cents = sl_c
@@ -1384,18 +1390,21 @@ def resume_live_monitor(
                 client.cancel_order(tp_order_id)
                 tp_order_id = None
             try:
-                sell_id = client.place_order(ticker, side, "market", 1, action="sell")
+                sell_id = client.place_order(ticker, side, "limit", sl_c, action="sell")
                 actual = None
                 if sell_id:
-                    for _ in range(15):
+                    for _ in range(30):
                         time.sleep(2)
                         status, fill_p = client.get_order_status(sell_id, side)
                         if status == "filled":
                             actual = fill_p
                             break
+                    if actual is None:
+                        client.cancel_order(sell_id)
+                        actual = mid
                 exit_cents = actual if actual is not None else mid
             except Exception as e:
-                log.warning(f"[{ticker}] Recovery SL market sell error: {e}")
+                log.warning(f"[{ticker}] Recovery SL limit sell error: {e}")
                 exit_cents = mid
             log.info(f"[{ticker}] STOP_LOSS  mid={mid}c <= {sl_c}c — exit@{exit_cents}c")
             break
