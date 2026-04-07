@@ -17,7 +17,7 @@ jobs:
           script: |
             cd /opt/kalshi-bot
             git pull origin master
-            venv/bin/pip install -q flask
+            venv/bin/pip install -q flask websocket-client
 
             # Write Discord webhook to .env if not already present
             sed -i '/^DISCORD_WEBHOOK_URL=/d' .env 2>/dev/null; echo 'DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/1486535589980541040/RI-QVhCh36cRPkQSq5bAXMMRlgAbTt_xNeH5hJ-q9XeUCOVBRTeVu308eD0eKhS3Ep0G' >> .env

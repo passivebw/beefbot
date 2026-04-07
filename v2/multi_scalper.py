@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import json
 import logging
 import math
 import os
@@ -470,6 +471,127 @@ class KalshiAuth:
             "KALSHI-ACCESS-TIMESTAMP": ts,
             "KALSHI-ACCESS-SIGNATURE": base64.b64encode(sig).decode(),
         }
+
+# ---------------------------------------------------------------------------
+# WebSocket ticker feed (live mode only)
+# ---------------------------------------------------------------------------
+
+class KalshiTickerWS:
+    """Real-time price cache via Kalshi WebSocket ticker channel.
+    Replaces REST orderbook polling in live mode — zero API calls for price data.
+    """
+    WS_URL  = "wss://api.elections.kalshi.com/trade-api/ws/v2"
+    WS_PATH = "/trade-api/ws/v2"
+
+    def __init__(self, auth: "KalshiAuth") -> None:
+        self._auth       = auth
+        self._prices:    dict[str, dict[str, int]] = {}
+        self._lock       = threading.RLock()
+        self._ready      = threading.Event()
+        self._ws         = None
+        self._subscribed: set[str] = set()
+        self._cmd_id     = 1
+
+    def start(self) -> None:
+        t = threading.Thread(target=self._run, daemon=True, name="kalshi-ws")
+        t.start()
+        if not self._ready.wait(timeout=15):
+            _ws_log().warning("WebSocket did not connect within 15s — will fall back to REST polling")
+
+    def subscribe(self, tickers: list[str]) -> None:
+        with self._lock:
+            new = [t for t in tickers if t not in self._subscribed]
+            if not new:
+                return
+            self._subscribed.update(new)
+            if self._ws:
+                self._send({"id": self._cmd_id, "cmd": "subscribe",
+                            "params": {"channels": ["ticker"], "market_tickers": new}})
+                self._cmd_id += 1
+
+    def get_prices(self, ticker: str) -> tuple[int, int]:
+        with self._lock:
+            p = self._prices.get(ticker, {})
+            return p.get("yes_ask", 0), p.get("no_ask", 0)
+
+    def is_ready(self) -> bool:
+        return self._ready.is_set()
+
+    def _send(self, msg: dict) -> None:
+        try:
+            if self._ws:
+                self._ws.send(json.dumps(msg))
+        except Exception as e:
+            _ws_log().debug(f"WS send error: {e}")
+
+    def _on_open(self, ws) -> None:
+        self._ws = ws
+        with self._lock:
+            if self._subscribed:
+                self._send({"id": self._cmd_id, "cmd": "subscribe",
+                            "params": {"channels": ["ticker"], "market_tickers": list(self._subscribed)}})
+                self._cmd_id += 1
+        self._ready.set()
+        _ws_log().info("WebSocket connected and ready")
+
+    def _on_message(self, ws, raw: str) -> None:
+        try:
+            data = json.loads(raw)
+            if data.get("type") not in ("ticker",):
+                return
+            msg    = data.get("msg", {})
+            ticker = msg.get("market_ticker")
+            if not ticker:
+                return
+            with self._lock:
+                p = self._prices.setdefault(ticker, {})
+                for field in ("yes_ask", "no_ask", "yes_bid", "no_bid"):
+                    v = msg.get(field)
+                    if v is not None:
+                        p[field] = int(v)
+        except Exception as e:
+            _ws_log().debug(f"WS message parse error: {e}")
+
+    def _on_error(self, ws, error) -> None:
+        _ws_log().warning(f"WebSocket error: {error}")
+
+    def _on_close(self, ws, code, reason) -> None:
+        _ws_log().warning(f"WebSocket closed: {code}")
+        self._ready.clear()
+        self._ws = None
+
+    def _run(self) -> None:
+        try:
+            import websocket as ws_lib
+        except ImportError:
+            _ws_log().error("websocket-client not installed — run: pip install websocket-client")
+            return
+
+        headers = self._auth.headers("GET", self.WS_PATH)
+        ws_headers = {k: v for k, v in headers.items() if k != "Content-Type"}
+
+        while True:
+            try:
+                wsa = ws_lib.WebSocketApp(
+                    self.WS_URL,
+                    header=ws_headers,
+                    on_open=self._on_open,
+                    on_message=self._on_message,
+                    on_error=self._on_error,
+                    on_close=self._on_close,
+                )
+                wsa.run_forever(ping_interval=30, ping_timeout=10)
+            except Exception as e:
+                _ws_log().warning(f"WebSocket run error: {e}")
+            time.sleep(5)
+
+
+def _ws_log() -> logging.LoggerAdapter:
+    return logging.LoggerAdapter(logging.getLogger("multi_scalper"), {"series": "WS"})
+
+
+# Global WebSocket instance — initialized in main() for live mode only
+_ticker_ws: Optional[KalshiTickerWS] = None
 
 # ---------------------------------------------------------------------------
 # Process-level API rate limiter — max 8 calls/second across all threads
@@ -1074,23 +1196,35 @@ def run_bracket_cycle(
         series_is_live = LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)
 
         if series_is_live:
-            # Live: poll orderbook until one side's ask reaches entry_c,
+            # Live: watch price until one side's ask reaches entry_c,
             # THEN place a limit BUY on that side only (prevents both sides
             # filling immediately as takers when market is undecided).
+            # Uses WebSocket price feed if available, otherwise falls back to REST polling.
             yes_oid: Optional[str] = None
             no_oid:  Optional[str] = None
 
-            while time.time() < window_end_ts and not filled_side:
-                try:
-                    ob = client.get_orderbook(ticker, expiry_ts)
-                except Exception as e:
-                    log.warning(f"[{ticker}] Orderbook error in entry scan: {e}")
-                    time.sleep(2)
-                    continue
+            use_ws = _ticker_ws is not None and _ticker_ws.is_ready()
+            if use_ws:
+                _ticker_ws.subscribe([ticker])
+                log.debug(f"[{ticker}] Using WebSocket feed for entry scan")
 
-                yes_ask = ob.yes_ask or 0
-                no_ask  = ob.no_ask  or 0
-                log.debug(f"[{ticker}] live scan: yes_ask={yes_ask}c no_ask={no_ask}c target<={entry_c}c")
+            while time.time() < window_end_ts and not filled_side:
+                if use_ws:
+                    yes_ask, no_ask = _ticker_ws.get_prices(ticker)
+                    if yes_ask == 0 and no_ask == 0:
+                        time.sleep(0.05)
+                        continue
+                    log.debug(f"[{ticker}] live scan (WS): yes_ask={yes_ask}c no_ask={no_ask}c target<={entry_c}c")
+                else:
+                    try:
+                        ob = client.get_orderbook(ticker, expiry_ts)
+                    except Exception as e:
+                        log.warning(f"[{ticker}] Orderbook error in entry scan: {e}")
+                        time.sleep(1)
+                        continue
+                    yes_ask = ob.yes_ask or 0
+                    no_ask  = ob.no_ask  or 0
+                    log.debug(f"[{ticker}] live scan (REST): yes_ask={yes_ask}c no_ask={no_ask}c target<={entry_c}c")
 
                 # Only place order when ask is within 5c of entry (prevents fills
                 # when market has already moved far away from entry price)
@@ -1119,7 +1253,7 @@ def run_bracket_cycle(
                         break
 
                 if not filled_side:
-                    time.sleep(2)
+                    time.sleep(0.05 if use_ws else ORDER_POLL_INTERVAL)
 
             # Window closed with no fill — cancel any open orders
             if not filled_side:
@@ -2123,6 +2257,12 @@ def main() -> None:
         sys.exit(1)
 
     stop_event = threading.Event()
+
+    # Start WebSocket ticker feed for live mode
+    if LIVE_MODE:
+        global _ticker_ws
+        _ticker_ws = KalshiTickerWS(auth)
+        _ticker_ws.start()
 
     # Start one worker thread per series
     threads: list[threading.Thread] = []
