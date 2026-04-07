@@ -43,13 +43,12 @@ jobs:
             # late-sniper - port 8007 - PAPER all 5 markets (excl HYPE+BNB)
             printf '[Unit]\nDescription=Kalshi Bot (late-sniper) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile late-sniper --port 8007\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/late-sniper.log\nStandardError=append:/opt/kalshi-bot/logs/late-sniper.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-late-sniper.service
 
-            # stop live service if running
-            systemctl stop kalshi-bot-late-sniper-live 2>/dev/null || true
-            systemctl disable kalshi-bot-late-sniper-live 2>/dev/null || true
+            # late-sniper-live - port 8008 - LIVE BTC+SOL only
+            printf '[Unit]\nDescription=Kalshi Bot (late-sniper) LIVE BTC+SOL\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nEnvironment=PYTHONUNBUFFERED=1\nExecStart=/opt/kalshi-bot/venv/bin/python3 -u v2/multi_scalper.py --profile late-sniper --port 8008 --live --live-series KXBTC15M,KXSOL15M\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/late-sniper-live.log\nStandardError=append:/opt/kalshi-bot/logs/late-sniper-live.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-late-sniper-live.service
 
             systemctl daemon-reload
-            systemctl enable kalshi-bot-moderate kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-risky-high-late kalshi-bot-late-sniper
-            systemctl restart kalshi-bot-moderate kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-risky-high-late kalshi-bot-late-sniper
+            systemctl enable kalshi-bot-moderate kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-risky-high-late kalshi-bot-late-sniper kalshi-bot-late-sniper-live
+            systemctl restart kalshi-bot-moderate kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-risky-high-late kalshi-bot-late-sniper kalshi-bot-late-sniper-live
 
             echo "Deploy complete: $(date)"
-            systemctl is-active kalshi-bot-moderate kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-risky-high-late kalshi-bot-late-sniper
+            systemctl is-active kalshi-bot-moderate kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-risky-high-late kalshi-bot-late-sniper kalshi-bot-late-sniper-live
