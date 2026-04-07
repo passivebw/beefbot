@@ -70,8 +70,8 @@ SL_ALERT_CENTS           = 55   # switch to fast polling when mid drops here
 TIME_STOP_SECONDS        = 120  # exit at whatever price with 2 min left
 CONTRACTS                = 1
 
-MARKET_POLL_INTERVAL = 2   # seconds between contract detection polls
-ORDER_POLL_INTERVAL  = 2   # seconds between fill/exit checks
+MARKET_POLL_INTERVAL = 1   # seconds between contract detection polls
+ORDER_POLL_INTERVAL  = 1   # seconds between fill/exit checks
 SL_POLL_INTERVAL     = 1   # fast polling when near stop loss
 
 # ---------------------------------------------------------------------------
@@ -1156,7 +1156,7 @@ def run_bracket_cycle(
                     entry_filled = no_ask
                     break
 
-                time.sleep(2)
+                time.sleep(ORDER_POLL_INTERVAL)
 
             if not filled_side:
                 log.info(f"[{ticker}] Bracket r{round_num}: window closed with no fill — done")
