@@ -1222,12 +1222,20 @@ def run_bracket_cycle(
                 _ticker_ws.subscribe([ticker])
                 log.debug(f"[{ticker}] Using WebSocket feed for entry scan")
 
+            _ws_zero_streak = 0  # consecutive 0,0 reads before falling back to REST
+
             while time.time() < window_end_ts and not filled_side:
                 if use_ws:
                     yes_ask, no_ask = _ticker_ws.get_prices(ticker)
                     if yes_ask == 0 and no_ask == 0:
-                        time.sleep(0.05)
+                        _ws_zero_streak += 1
+                        if _ws_zero_streak >= 40:  # ~2s of 0,0 — WS has no data for this ticker
+                            log.warning(f"[{ticker}] WebSocket no data after 2s — falling back to REST")
+                            use_ws = False
+                        else:
+                            time.sleep(0.05)
                         continue
+                    _ws_zero_streak = 0
                     log.debug(f"[{ticker}] live scan (WS): yes_ask={yes_ask}c no_ask={no_ask}c target<={entry_c}c")
                 else:
                     try:
