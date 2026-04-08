@@ -1630,10 +1630,9 @@ def series_worker(
                 run_bracket_cycle(client, conn, log, series, profile, ticker, expiry_ts)
             except Exception as e:
                 log.error(f"Bracket cycle error: {e}", exc_info=True)
-            if not stop_event.is_set():
-                # Sleep until exactly the next 15-min boundary — contracts appear
-                # ~40s after the mark, so 2s polling from T+0 catches them at ~T+40s.
-                sleep_until_next_contract(log, buffer_s=0)
+            # Do NOT sleep here — the next contract opens at the same boundary
+            # this one expired, so sleeping to the next quarter mark skips it.
+            # The polling loop above catches it within ~40s naturally.
             continue
 
         # Momentum profiles: 3-window entry system
