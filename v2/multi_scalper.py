@@ -2207,9 +2207,11 @@ def main() -> None:
 
     _load_dotenv(".env")
 
-    # Per-profile log file so logs don't interleave
+    # Per-profile log file so logs don't interleave.
+    # Live service gets its own file so it doesn't double-write with the paper service.
     global LOG_PATH
-    LOG_PATH = f"./logs/{ACTIVE_PROFILE}.log"
+    suffix = "-live" if LIVE_MODE else ""
+    LOG_PATH = f"./logs/{ACTIVE_PROFILE}{suffix}.log"
     _root_log = setup_logging()
 
     log = get_log("MAIN")
