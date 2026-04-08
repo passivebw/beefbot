@@ -205,6 +205,20 @@ PROFILES: dict[str, dict] = {
         "DAILY_LOSS_LIMIT_CENTS":        -500,
         "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
+    # Same as late-sniper but no TP — rides to expiry (or SL).
+    # Paper only — compares EV of locking profit at 97c vs holding to resolution.
+    "late-sniper-ride": {
+        "strategy":                       "bracket",
+        "BRACKET_ENTRY_CENTS":            90,
+        "BRACKET_TP_ALERT_CENTS":         100,   # never triggers — ride to expiry
+        "BRACKET_SELL_CENTS":             100,
+        "BRACKET_SL_CENTS":               80,
+        "BRACKET_SL_ALERT_CENTS":         83,
+        "BRACKET_WINDOW_START_SECONDS":   660,
+        "BRACKET_WINDOW_DURATION_SECONDS": 240,
+        "DAILY_LOSS_LIMIT_CENTS":        -500,
+        "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
+    },
 }
 
 # Active profile name — set by --profile arg in main()
