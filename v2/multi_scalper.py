@@ -196,8 +196,8 @@ PROFILES: dict[str, dict] = {
     "late-sniper": {
         "strategy":                       "bracket",
         "BRACKET_ENTRY_CENTS":            90,
-        "BRACKET_TP_ALERT_CENTS":         98,
-        "BRACKET_SELL_CENTS":             97,    # +13c above avg entry (was 93c)
+        "BRACKET_TP_ALERT_CENTS":         100,   # no TP — ride to expiry at 100c
+        "BRACKET_SELL_CENTS":             100,
         "BRACKET_SL_CENTS":               50,    # catastrophic reversal only — 80c was too tight (noise)
         "BRACKET_SL_ALERT_CENTS":         55,
         "BRACKET_WINDOW_START_SECONDS":   660,   # start at 11 min in (last 4 min)
