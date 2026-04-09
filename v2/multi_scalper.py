@@ -198,8 +198,8 @@ PROFILES: dict[str, dict] = {
         "BRACKET_ENTRY_CENTS":            90,
         "BRACKET_TP_ALERT_CENTS":         100,   # no TP — ride to expiry at 100c
         "BRACKET_SELL_CENTS":             100,
-        "BRACKET_SL_CENTS":               50,    # catastrophic reversal only — 80c was too tight (noise)
-        "BRACKET_SL_ALERT_CENTS":         55,
+        "BRACKET_SL_CENTS":               80,    # reverted from 50c — 50c caused -38c avg losses vs -7c at 80c
+        "BRACKET_SL_ALERT_CENTS":         83,
         "BRACKET_WINDOW_START_SECONDS":   660,   # start at 11 min in (last 4 min)
         "BRACKET_WINDOW_DURATION_SECONDS": 240,  # 4-min window
         "DAILY_LOSS_LIMIT_CENTS":        -500,
@@ -581,10 +581,10 @@ class KalshiTickerWS:
             _ws_log().error("websocket-client not installed — run: pip install websocket-client")
             return
 
-        headers = self._auth.headers("GET", self.WS_PATH)
-        ws_headers = {k: v for k, v in headers.items() if k != "Content-Type"}
-
         while True:
+            # Regenerate auth headers on every connect attempt — Kalshi timestamps expire
+            headers = self._auth.headers("GET", self.WS_PATH)
+            ws_headers = {k: v for k, v in headers.items() if k != "Content-Type"}
             try:
                 wsa = ws_lib.WebSocketApp(
                     self.WS_URL,
