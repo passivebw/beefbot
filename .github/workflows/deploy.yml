@@ -22,14 +22,14 @@ jobs:
             # Write Discord webhook to .env if not already present
             sed -i '/^DISCORD_WEBHOOK_URL=/d' .env 2>/dev/null; echo 'DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/1486535589980541040/RI-QVhCh36cRPkQSq5bAXMMRlgAbTt_xNeH5hJ-q9XeUCOVBRTeVu308eD0eKhS3Ep0G' >> .env
 
-            # Stop and disable removed profiles
-            for svc in kalshi-bot kalshi-bot-risky kalshi-bot-risky-0m kalshi-bot-risky-1m kalshi-bot-risky-2m kalshi-bot-conservative-69 kalshi-bot-conservative kalshi-bot-moderate-rr12 kalshi-bot-og-risky kalshi-bot-risky-high-early; do
+            # Stop and disable removed/replaced profiles
+            for svc in kalshi-bot kalshi-bot-risky kalshi-bot-risky-0m kalshi-bot-risky-1m kalshi-bot-risky-2m kalshi-bot-conservative-69 kalshi-bot-conservative kalshi-bot-moderate-rr12 kalshi-bot-og-risky kalshi-bot-risky-high-early kalshi-bot-late-sniper; do
               systemctl stop $svc 2>/dev/null || true
               systemctl disable $svc 2>/dev/null || true
             done
 
-            # moderate - port 8000 - PAPER all 7 markets
-            printf '[Unit]\nDescription=Kalshi Bot (moderate) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile moderate --port 8000\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/moderate.log\nStandardError=append:/opt/kalshi-bot/logs/moderate.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-moderate.service
+            # moderate - port 8000 - LIVE all markets except BNB
+            printf '[Unit]\nDescription=Kalshi Bot (moderate) LIVE\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nEnvironment=PYTHONUNBUFFERED=1\nExecStart=/opt/kalshi-bot/venv/bin/python3 -u v2/multi_scalper.py --profile moderate --port 8000 --live --live-series KXBTC15M,KXSOL15M,KXETH15M,KXDOGE15M,KXXRP15M,KXHYPE15M\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/moderate-live.log\nStandardError=append:/opt/kalshi-bot/logs/moderate-live.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-moderate.service
 
             # risky-low - port 8004 - PAPER all 7 markets
             printf '[Unit]\nDescription=Kalshi Bot (risky-low) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile risky-low --port 8004\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/risky-low.log\nStandardError=append:/opt/kalshi-bot/logs/risky-low.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-risky-low.service
@@ -40,9 +40,6 @@ jobs:
             # risky-high-late - port 8006 - PAPER all 7 markets
             printf '[Unit]\nDescription=Kalshi Bot (risky-high-late) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile risky-high-late --port 8006\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/risky-high-late.log\nStandardError=append:/opt/kalshi-bot/logs/risky-high-late.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-risky-high-late.service
 
-            # late-sniper - port 8007 - PAPER all 5 markets (excl HYPE+BNB)
-            printf '[Unit]\nDescription=Kalshi Bot (late-sniper) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile late-sniper --port 8007\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/late-sniper.log\nStandardError=append:/opt/kalshi-bot/logs/late-sniper.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-late-sniper.service
-
             # late-sniper-live - port 8008 - LIVE BTC+SOL only
             printf '[Unit]\nDescription=Kalshi Bot (late-sniper) LIVE BTC+SOL\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nEnvironment=PYTHONUNBUFFERED=1\nExecStart=/opt/kalshi-bot/venv/bin/python3 -u v2/multi_scalper.py --profile late-sniper --port 8008 --live --live-series KXBTC15M,KXSOL15M\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/late-sniper-live.log\nStandardError=append:/opt/kalshi-bot/logs/late-sniper-live.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-late-sniper-live.service
 
@@ -50,8 +47,8 @@ jobs:
             printf '[Unit]\nDescription=Kalshi Bot (late-sniper-ride) PAPER no-TP\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile late-sniper-ride --port 8009\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/late-sniper-ride.log\nStandardError=append:/opt/kalshi-bot/logs/late-sniper-ride.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-late-sniper-ride.service
 
             systemctl daemon-reload
-            systemctl enable kalshi-bot-moderate kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-risky-high-late kalshi-bot-late-sniper kalshi-bot-late-sniper-live kalshi-bot-late-sniper-ride
-            systemctl restart kalshi-bot-moderate kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-risky-high-late kalshi-bot-late-sniper kalshi-bot-late-sniper-live kalshi-bot-late-sniper-ride
+            systemctl enable kalshi-bot-moderate kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-risky-high-late kalshi-bot-late-sniper-live kalshi-bot-late-sniper-ride
+            systemctl restart kalshi-bot-moderate kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-risky-high-late kalshi-bot-late-sniper-live kalshi-bot-late-sniper-ride
 
             echo "Deploy complete: $(date)"
-            systemctl is-active kalshi-bot-moderate kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-risky-high-late kalshi-bot-late-sniper kalshi-bot-late-sniper-live kalshi-bot-late-sniper-ride
+            systemctl is-active kalshi-bot-moderate kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-risky-high-late kalshi-bot-late-sniper-live kalshi-bot-late-sniper-ride
