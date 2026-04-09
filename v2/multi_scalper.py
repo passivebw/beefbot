@@ -198,8 +198,8 @@ PROFILES: dict[str, dict] = {
         "BRACKET_ENTRY_CENTS":            90,
         "BRACKET_TP_ALERT_CENTS":         98,
         "BRACKET_SELL_CENTS":             97,    # +13c above avg entry (was 93c)
-        "BRACKET_SL_CENTS":               80,    # -7c max loss (tightened from 70c per Jim Forrester data)
-        "BRACKET_SL_ALERT_CENTS":         83,    # switch to 1s polling here
+        "BRACKET_SL_CENTS":               50,    # catastrophic reversal only — 80c was too tight (noise)
+        "BRACKET_SL_ALERT_CENTS":         55,
         "BRACKET_WINDOW_START_SECONDS":   660,   # start at 11 min in (last 4 min)
         "BRACKET_WINDOW_DURATION_SECONDS": 240,  # 4-min window
         "DAILY_LOSS_LIMIT_CENTS":        -500,
