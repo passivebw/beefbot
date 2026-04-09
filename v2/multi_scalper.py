@@ -997,11 +997,13 @@ def run_cycle(
             log.warning(f"[{ticker}] Balance check failed: {e} — skipping")
             return "retry"
 
-        order_id = client.place_order(ticker, filled_side, "market", None)
+        # Kalshi requires a price even for taker fills — use signal_ask+2 as aggressive limit
+        taker_price = min(signal_ask + 2, 98)
+        order_id = client.place_order(ticker, filled_side, "limit", taker_price)
         if not order_id:
-            log.warning(f"[{ticker}] Market order placement failed — retrying")
+            log.warning(f"[{ticker}] Taker limit order placement failed — retrying")
             return "retry"
-        log.info(f"[{ticker}] MARKET ORDER: {filled_side.upper()} (signal ask={signal_ask}c)  id={order_id}")
+        log.info(f"[{ticker}] TAKER LIMIT: {filled_side.upper()} @ {taker_price}c (signal ask={signal_ask}c)  id={order_id}")
 
         for _ in range(10):
             time.sleep(1)
@@ -1034,7 +1036,7 @@ def run_cycle(
     def _market_sell_live() -> Optional[int]:
         """Place a market SELL (taker) and return actual fill price, or None on failure."""
         try:
-            sell_id = client.place_order(ticker, filled_side, "market", None, action="sell")
+            sell_id = client.place_order(ticker, filled_side, "limit", 1, action="sell")
             if not sell_id:
                 return None
             for _ in range(15):
