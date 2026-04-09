@@ -199,8 +199,10 @@ PROFILES: dict[str, dict] = {
         "BRACKET_ENTRY_MIN_CENTS":        80,    # entry band: 80-90c
         "BRACKET_TP_ALERT_CENTS":         100,   # no TP — ride to expiry at 100c
         "BRACKET_SELL_CENTS":             100,
-        # No SL — data shows SL at any level (80c/50c/30c) was wrong 67-93% of the time.
-        # Markets at 80-90c with 4min left almost always resolve correctly even after dips.
+        # Conviction-based SL: if underlying moved ≥0.2% since contract open → no SL
+        # (real momentum, trust it). If <0.2% → SL at 40c (noise spike, protect downside).
+        "CONVICTION_THRESHOLD_PCT":       0.2,
+        "CONVICTION_SL_CENTS":            40,
         "BRACKET_WINDOW_START_SECONDS":   660,   # start at 11 min in (last 4 min)
         "BRACKET_WINDOW_DURATION_SECONDS": 240,  # 4-min window
         "DAILY_LOSS_LIMIT_CENTS":        -500,
@@ -354,6 +356,44 @@ KALSHI_BASE_URL  = "https://api.elections.kalshi.com/trade-api/v2"
 DEFAULT_KEY_PATH = "/opt/kalshi-bot/kalshi_private_key.pem"
 DB_PATH          = "./data/bot.db"
 LOG_PATH         = "./logs/multi_scalper.log"
+
+# Binance symbol for each Kalshi series — used for conviction check
+SERIES_SPOT_SYMBOL: dict[str, str] = {
+    "KXBTC15M":  "BTCUSDT",
+    "KXSOL15M":  "SOLUSDT",
+    "KXETH15M":  "ETHUSDT",
+    "KXXRP15M":  "XRPUSDT",
+    "KXDOGE15M": "DOGEUSDT",
+    "KXBNB15M":  "BNBUSDT",
+    # KXHYPE15M omitted — HyperLiquid not on Binance; conviction check skipped
+}
+
+# ---------------------------------------------------------------------------
+# Spot price helpers (Binance public API — no auth required)
+# ---------------------------------------------------------------------------
+
+def get_spot_price(symbol: str) -> Optional[float]:
+    """Fetch current spot price from Binance. Returns None on failure."""
+    try:
+        import urllib.request as _ur
+        url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
+        with _ur.urlopen(url, timeout=3) as resp:
+            return float(json.loads(resp.read())["price"])
+    except Exception:
+        return None
+
+def conviction_pct(series: str, open_price: Optional[float]) -> Optional[float]:
+    """Return abs % change from open_price to now for the series' underlying.
+    Returns None if price unavailable or series has no spot symbol."""
+    if open_price is None:
+        return None
+    symbol = SERIES_SPOT_SYMBOL.get(series)
+    if not symbol:
+        return None
+    current = get_spot_price(symbol)
+    if current is None or open_price == 0:
+        return None
+    return abs((current - open_price) / open_price * 100)
 
 # ---------------------------------------------------------------------------
 # .env loader
@@ -1182,6 +1222,15 @@ def run_bracket_cycle(
     win_start_off  = cfg["BRACKET_WINDOW_START_SECONDS"]
     win_duration   = cfg["BRACKET_WINDOW_DURATION_SECONDS"]
 
+    conviction_threshold = cfg.get("CONVICTION_THRESHOLD_PCT")
+    conviction_sl_c      = cfg.get("CONVICTION_SL_CENTS")
+
+    # Snapshot spot price at contract open for conviction check later
+    spot_sym   = SERIES_SPOT_SYMBOL.get(series)
+    open_price = get_spot_price(spot_sym) if spot_sym else None
+    if conviction_threshold is not None and open_price is not None:
+        log.info(f"[{ticker}] Spot open_price={open_price} ({spot_sym}) — conviction SL armed")
+
     # Each 15-min contract is 900 seconds
     contract_open_ts = expiry_ts - 900
     window_start_ts  = contract_open_ts + win_start_off
@@ -1325,6 +1374,18 @@ def run_bracket_cycle(
                 break
 
         log.info(f"[{ticker}] Bracket FILL: {filled_side.upper()} @ {entry_filled}c (limit was {entry_c}c)")
+
+        # Conviction-based SL: override sl_c based on spot price move since contract open
+        if conviction_threshold is not None and conviction_sl_c is not None:
+            pct = conviction_pct(series, open_price)
+            if pct is not None and pct >= conviction_threshold:
+                sl_c = None
+                log.info(f"[{ticker}] Conviction {pct:.2f}% >= {conviction_threshold}% — no SL (real move, ride to expiry)")
+            else:
+                sl_c = conviction_sl_c
+                pct_str = f"{pct:.2f}%" if pct is not None else "unavailable"
+                log.info(f"[{ticker}] Conviction {pct_str} < {conviction_threshold}% — SL at {sl_c}c")
+
         if sl_c is not None:
             log.info(f"[{ticker}] SL active @ {sl_c}c — monitoring mid, will market sell if hit")
 
