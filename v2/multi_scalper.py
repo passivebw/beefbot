@@ -196,24 +196,25 @@ PROFILES: dict[str, dict] = {
     "late-sniper": {
         "strategy":                       "bracket",
         "BRACKET_ENTRY_CENTS":            90,
+        "BRACKET_ENTRY_MIN_CENTS":        80,    # entry band: 80-90c (was 85-90c)
         "BRACKET_TP_ALERT_CENTS":         100,   # no TP — ride to expiry at 100c
         "BRACKET_SELL_CENTS":             100,
-        "BRACKET_SL_CENTS":               80,    # reverted from 50c — 50c caused -38c avg losses vs -7c at 80c
-        "BRACKET_SL_ALERT_CENTS":         83,
+        "BRACKET_SL_CENTS":               30,    # catastrophic reversal only — 14/15 of 80c dips recovered
+        "BRACKET_SL_ALERT_CENTS":         35,
         "BRACKET_WINDOW_START_SECONDS":   660,   # start at 11 min in (last 4 min)
         "BRACKET_WINDOW_DURATION_SECONDS": 240,  # 4-min window
         "DAILY_LOSS_LIMIT_CENTS":        -500,
         "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
-    # Same as late-sniper but no TP — rides to expiry (or SL).
-    # Paper only — compares EV of locking profit at 97c vs holding to resolution.
+    # Paper: wider entry band + mid SL — compare vs live's 30c SL
     "late-sniper-ride": {
         "strategy":                       "bracket",
         "BRACKET_ENTRY_CENTS":            90,
-        "BRACKET_TP_ALERT_CENTS":         100,   # never triggers — ride to expiry
+        "BRACKET_ENTRY_MIN_CENTS":        80,    # entry band: 80-90c (was 85-90c)
+        "BRACKET_TP_ALERT_CENTS":         100,   # no TP — ride to expiry
         "BRACKET_SELL_CENTS":             100,
-        "BRACKET_SL_CENTS":               80,
-        "BRACKET_SL_ALERT_CENTS":         83,
+        "BRACKET_SL_CENTS":               70,    # paper: tighter than live 30c to compare outcomes
+        "BRACKET_SL_ALERT_CENTS":         73,
         "BRACKET_WINDOW_START_SECONDS":   660,
         "BRACKET_WINDOW_DURATION_SECONDS": 240,
         "DAILY_LOSS_LIMIT_CENTS":        -500,
@@ -1165,6 +1166,7 @@ def run_bracket_cycle(
 
     cfg            = PROFILES[profile]
     entry_c        = cfg["BRACKET_ENTRY_CENTS"]
+    entry_min_c    = cfg.get("BRACKET_ENTRY_MIN_CENTS", entry_c - 5)  # lower bound of entry band
     tp_alert_c     = cfg["BRACKET_TP_ALERT_CENTS"]
     sell_c         = cfg["BRACKET_SELL_CENTS"]
     sl_c           = cfg.get("BRACKET_SL_CENTS", None)       # None = no SL
@@ -1189,7 +1191,7 @@ def run_bracket_cycle(
         return
 
     log.info(
-        f"[{ticker}] BRACKET START  entry={entry_c}c  "
+        f"[{ticker}] BRACKET START  entry=[{entry_min_c},{entry_c}]c  "
         f"tp_alert={tp_alert_c}c  sell={sell_c}c  "
         f"window={win_duration}s  profile={profile}"
     )
@@ -1248,15 +1250,13 @@ def run_bracket_cycle(
                     no_ask  = ob.no_ask  or 0
                     log.debug(f"[{ticker}] live scan (REST): yes_ask={yes_ask}c no_ask={no_ask}c target<={entry_c}c")
 
-                # Only place order when ask is within 5c of entry (prevents fills
-                # when market has already moved far away from entry price)
-                entry_min = entry_c - 5
-                if yes_ask > 0 and entry_min <= yes_ask <= entry_c and not yes_oid:
+                # Place order when ask is within the entry band
+                if yes_ask > 0 and entry_min_c <= yes_ask <= entry_c and not yes_oid:
                     yes_oid = client.place_order(ticker, "yes", "limit", entry_c)
-                    log.info(f"[{ticker}] YES ask={yes_ask}c in band [{entry_min},{entry_c}] — placed BUY limit id={yes_oid}")
-                if no_ask > 0 and entry_min <= no_ask <= entry_c and not no_oid:
+                    log.info(f"[{ticker}] YES ask={yes_ask}c in band [{entry_min_c},{entry_c}] — placed BUY limit id={yes_oid}")
+                if no_ask > 0 and entry_min_c <= no_ask <= entry_c and not no_oid:
                     no_oid = client.place_order(ticker, "no", "limit", entry_c)
-                    log.info(f"[{ticker}] NO ask={no_ask}c in band [{entry_min},{entry_c}] — placed BUY limit id={no_oid}")
+                    log.info(f"[{ticker}] NO ask={no_ask}c in band [{entry_min_c},{entry_c}] — placed BUY limit id={no_oid}")
 
                 # Check fill status of any placed orders
                 for side, oid in [("yes", yes_oid), ("no", no_oid)]:
@@ -1300,14 +1300,12 @@ def run_bracket_cycle(
                 no_ask  = ob.no_ask  or 0
                 log.debug(f"[{ticker}] bracket scan r{round_num}: yes_ask={yes_ask}c no_ask={no_ask}c target<={entry_c}c")
 
-                # Same entry band as live mode: only fill when ask is within
-                # 5c of entry price (prevents spurious fills at far-off prices)
-                entry_min = entry_c - 5
-                if yes_ask > 0 and entry_min <= yes_ask <= entry_c:
+                # Fill when ask is within the entry band
+                if yes_ask > 0 and entry_min_c <= yes_ask <= entry_c:
                     filled_side  = "yes"
                     entry_filled = yes_ask
                     break
-                if no_ask > 0 and entry_min <= no_ask <= entry_c:
+                if no_ask > 0 and entry_min_c <= no_ask <= entry_c:
                     filled_side  = "no"
                     entry_filled = no_ask
                     break
