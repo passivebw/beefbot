@@ -696,6 +696,22 @@ class KalshiClient:
             expiry_ts=expiry_ts,
         )
 
+    def get_market_result(self, ticker: str) -> Optional[str]:
+        """Return 'yes', 'no', or None if not yet finalized."""
+        try:
+            path = f"/trade-api/v2/markets/{ticker}"
+            r = self._http.get(
+                KALSHI_BASE_URL + f"/markets/{ticker}",
+                headers=self._auth.headers("GET", path),
+            )
+            r.raise_for_status()
+            m = r.json().get("market", {})
+            if m.get("status") == "finalized":
+                return m.get("result")  # "yes" or "no"
+        except Exception:
+            pass
+        return None
+
     def get_balance(self) -> int:
         """Return available balance in cents."""
         path = "/trade-api/v2/portfolio/balance"
@@ -1082,11 +1098,21 @@ def run_cycle(
 
         if tte <= 0:
             exit_reason = "expired"
-            exit_cents  = mid
             if series_is_live and tp_order_id:
                 client.cancel_order(tp_order_id)
                 tp_order_id = None
-            log.info(f"[{ticker}] EXPIRED  exit@{exit_cents}c")
+            # Poll for actual Kalshi settlement (may take a few seconds after :00/:15/:30/:45)
+            result = None
+            for _ in range(15):
+                result = client.get_market_result(ticker)
+                if result is not None:
+                    break
+                time.sleep(2)
+            if result is not None:
+                exit_cents = 100 if result == filled_side else 0
+            else:
+                exit_cents = mid  # fallback if settlement delayed beyond 30s
+            log.info(f"[{ticker}] EXPIRED  result={result}  exit@{exit_cents}c")
             break
 
         time.sleep(SL_POLL_INTERVAL if mid <= SL_ALERT_CENTS else ORDER_POLL_INTERVAL)
@@ -1409,12 +1435,21 @@ def run_bracket_cycle(
                 break
 
             if tte <= 0:
-                exit_cents  = mid
                 exit_reason = "expired"
                 if series_is_live and tp_order_id:
                     client.cancel_order(tp_order_id)
                     tp_order_id = None
-                log.info(f"[{ticker}] EXPIRED  exit@{exit_cents}c")
+                result = None
+                for _ in range(15):
+                    result = client.get_market_result(ticker)
+                    if result is not None:
+                        break
+                    time.sleep(2)
+                if result is not None:
+                    exit_cents = 100 if result == filled_side else 0
+                else:
+                    exit_cents = mid
+                log.info(f"[{ticker}] EXPIRED  result={result}  exit@{exit_cents}c")
                 break
 
             time.sleep(1 if fast_polling else 2)
@@ -1564,12 +1599,21 @@ def resume_live_monitor(
             break
 
         if tte <= 0:
-            exit_cents  = mid
             exit_reason = "expired"
             if tp_order_id:
                 client.cancel_order(tp_order_id)
                 tp_order_id = None
-            log.info(f"[{ticker}] EXPIRED  exit@{exit_cents}c")
+            result = None
+            for _ in range(15):
+                result = client.get_market_result(ticker)
+                if result is not None:
+                    break
+                time.sleep(2)
+            if result is not None:
+                exit_cents = 100 if result == side else 0
+            else:
+                exit_cents = mid
+            log.info(f"[{ticker}] EXPIRED  result={result}  exit@{exit_cents}c")
             break
 
         time.sleep(1 if fast_polling else 2)
