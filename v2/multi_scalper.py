@@ -196,11 +196,11 @@ PROFILES: dict[str, dict] = {
     "late-sniper": {
         "strategy":                       "bracket",
         "BRACKET_ENTRY_CENTS":            90,
-        "BRACKET_ENTRY_MIN_CENTS":        80,    # entry band: 80-90c (was 85-90c)
+        "BRACKET_ENTRY_MIN_CENTS":        80,    # entry band: 80-90c
         "BRACKET_TP_ALERT_CENTS":         100,   # no TP — ride to expiry at 100c
         "BRACKET_SELL_CENTS":             100,
-        "BRACKET_SL_CENTS":               30,    # catastrophic reversal only — 14/15 of 80c dips recovered
-        "BRACKET_SL_ALERT_CENTS":         35,
+        # No SL — data shows SL at any level (80c/50c/30c) was wrong 67-93% of the time.
+        # Markets at 80-90c with 4min left almost always resolve correctly even after dips.
         "BRACKET_WINDOW_START_SECONDS":   660,   # start at 11 min in (last 4 min)
         "BRACKET_WINDOW_DURATION_SECONDS": 240,  # 4-min window
         "DAILY_LOSS_LIMIT_CENTS":        -500,
