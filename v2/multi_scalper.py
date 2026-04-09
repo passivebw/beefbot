@@ -341,10 +341,7 @@ LIMIT_ORDER_TIMEOUT  = 45      # seconds to wait for limit fill before fallback
 
 # Per-series momentum threshold overrides (added on top of profile threshold)
 # XRP and ETH historically weaker signals — require higher conviction to enter
-SERIES_THRESHOLD_OVERRIDE = {
-    "KXXRP15M": 70,
-    "KXETH15M": 67,
-}
+SERIES_THRESHOLD_OVERRIDE: dict[str, int] = {}  # no per-series overrides — flat 65c threshold for all
 
 # ---------------------------------------------------------------------------
 # Paths
