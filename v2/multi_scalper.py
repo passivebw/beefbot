@@ -891,43 +891,50 @@ def run_cycle(
     entry_cents:  Optional[int] = None
     signal_ask:   int           = 0
 
-    # ---- Phase 2: scan for momentum signal ----
-    # Early-warning: when bid crosses (threshold - 8c), switch to 1s polling so
-    # we catch fast-moving markets before the ask blows past max_entry_cents.
-    # We do NOT pre-place orders at that point — the ask is still well below
-    # threshold and a limit buy at max_entry would fill immediately at the low ask.
-    EARLY_WARNING_OFFSET = 8   # cents below threshold to trigger fast polling
-    in_early_warning = False
+    # ---- Phase 2: scan for momentum signal (WebSocket-first, REST fallback) ----
+    use_ws = _ticker_ws is not None and _ticker_ws.is_ready()
+    if use_ws:
+        _ticker_ws.subscribe([ticker])
+        log.debug(f"[{ticker}] Using WebSocket feed for momentum scan")
+
+    _ws_zero_streak = 0
 
     scan_deadline = scan_end_ts if scan_end_ts is not None else (time.time() + SCAN_WINDOW_SECONDS)
     while time.time() < scan_deadline:
-        poll_interval = 1 if in_early_warning else ORDER_POLL_INTERVAL
-        time.sleep(poll_interval)
         tte = expiry_ts - time.time()
         if tte <= TIME_STOP_SECONDS + 30:
             log.info(f"[{ticker}] Too late to enter (tte={tte:.0f}s) — no trade")
             return "no_entry"
-        try:
-            ob = client.get_orderbook(ticker, expiry_ts)
-        except Exception as e:
-            log.warning(f"[{ticker}] Orderbook error: {e}")
-            continue
 
-        # Signal check: ask >= threshold means the crowd is paying threshold cents for that side.
-        # At 50/50 market, ask ~51c. As momentum builds, ask rises (63c, 70c, etc).
-        # Trigger when ask reaches threshold — enter at ask-1c (maker, no fee).
-        yes_ask = ob.yes_ask or 0
-        no_ask  = ob.no_ask  or 0
-        log.info(f"[{ticker}] scan: yes_ask={yes_ask} no_ask={no_ask} threshold={threshold} tte={tte:.0f}s early={in_early_warning}")
+        if use_ws:
+            yes_ask, no_ask = _ticker_ws.get_prices(ticker)
+            if yes_ask == 0 and no_ask == 0:
+                _ws_zero_streak += 1
+                if _ws_zero_streak >= 40:
+                    log.warning(f"[{ticker}] WebSocket no data after 2s — falling back to REST")
+                    use_ws = False
+                else:
+                    time.sleep(0.05)
+                continue
+            _ws_zero_streak = 0
+        else:
+            try:
+                ob = client.get_orderbook(ticker, expiry_ts)
+                yes_ask = ob.yes_ask or 0
+                no_ask  = ob.no_ask  or 0
+            except Exception as e:
+                log.warning(f"[{ticker}] Orderbook error: {e}")
+                time.sleep(1)
+                continue
+
+        log.debug(f"[{ticker}] scan: yes_ask={yes_ask} no_ask={no_ask} threshold={threshold} tte={tte:.0f}s")
         for side, ask_val in [("yes", yes_ask), ("no", no_ask)]:
             if ask_val == 0:
                 continue
             if ask_val >= threshold:
                 if ask_val < MOMENTUM_MIN_ENTRY_CENTS:
-                    log.debug(f"[{ticker}] {side.upper()} signal but ask={ask_val}c < min {MOMENTUM_MIN_ENTRY_CENTS}c — skipping")
                     continue
                 if ask_val > MOMENTUM_MAX_ENTRY_CENTS:
-                    log.debug(f"[{ticker}] {side.upper()} signal but ask={ask_val}c > max {MOMENTUM_MAX_ENTRY_CENTS}c — skipping")
                     continue
                 filled_side = side
                 signal_ask  = ask_val
@@ -935,70 +942,45 @@ def run_cycle(
         if filled_side:
             break
 
-        # Early warning: ask crossed (threshold - 8c) rising — switch to 1s polling
-        warning_ask = threshold - EARLY_WARNING_OFFSET
-        if not in_early_warning and (yes_ask >= warning_ask or no_ask >= warning_ask):
-            in_early_warning = True
-            log.info(f"[{ticker}] EARLY WARNING: ask={max(yes_ask, no_ask)}c >= {warning_ask}c — switching to 1s polling")
-        elif in_early_warning and yes_ask < warning_ask - 3 and no_ask < warning_ask - 3:
-            in_early_warning = False
-            log.info(f"[{ticker}] Ask retreated — back to {ORDER_POLL_INTERVAL}s polling")
+        if not use_ws:
+            time.sleep(ORDER_POLL_INTERVAL)
     else:
         log.info(f"[{ticker}] No momentum signal in scan window — no entry")
         return "no_entry"
 
-    # ---- Entry execution: limit order with market fallback ----
-    limit_price = signal_ask - 1
-
+    # ---- Entry execution: market taker order (guaranteed fill at current ask) ----
     if not series_is_live:
-        entry_cents = limit_price
-        log.info(f"[{ticker}] PAPER ENTRY: {filled_side.upper()} @ {entry_cents}c (ask was {signal_ask}c)")
+        entry_cents = signal_ask
+        log.info(f"[{ticker}] PAPER ENTRY: {filled_side.upper()} @ {entry_cents}c")
     else:
         try:
             balance = client.get_balance()
-            if balance < limit_price * CONTRACTS:
+            if balance < signal_ask * CONTRACTS:
                 log.warning(f"[{ticker}] Insufficient balance: {balance}c — skipping")
                 return "no_entry"
         except Exception as e:
             log.warning(f"[{ticker}] Balance check failed: {e} — skipping")
             return "retry"
 
-        order_id = client.place_order(ticker, filled_side, "limit", limit_price)
+        order_id = client.place_order(ticker, filled_side, "market", None)
         if not order_id:
-            log.warning(f"[{ticker}] Limit order placement failed — retrying")
+            log.warning(f"[{ticker}] Market order placement failed — retrying")
             return "retry"
-        log.info(f"[{ticker}] LIMIT ORDER: {filled_side.upper()} @ {limit_price}c  id={order_id}")
+        log.info(f"[{ticker}] MARKET ORDER: {filled_side.upper()} (signal ask={signal_ask}c)  id={order_id}")
 
-        fill_deadline = time.time() + LIMIT_ORDER_TIMEOUT
-        while time.time() < fill_deadline:
-            time.sleep(3)
+        for _ in range(10):
+            time.sleep(1)
             try:
                 status, filled_price = client.get_order_status(order_id, filled_side)
             except Exception:
                 continue
             if status == "filled":
                 entry_cents = filled_price
-                log.info(f"[{ticker}] Limit FILLED @ {entry_cents}c")
+                log.info(f"[{ticker}] Market order FILLED @ {entry_cents}c")
                 break
-            elif status in ("canceled", "error"):
-                log.warning(f"[{ticker}] Limit order {status} unexpectedly — retrying")
-                return "retry"
-
-            # Cancel immediately if ask has blown past max entry — no point waiting
-            try:
-                ob_check = client.get_orderbook(ticker, expiry_ts)
-                current_ask = ob_check.yes_ask if filled_side == "yes" else ob_check.no_ask
-                if current_ask > MOMENTUM_MAX_ENTRY_CENTS:
-                    client.cancel_order(order_id)
-                    log.info(f"[{ticker}] Ask={current_ask}c > max {MOMENTUM_MAX_ENTRY_CENTS}c — cancelling limit order, moving to next window")
-                    return "no_entry"
-            except Exception:
-                pass
-
         if entry_cents is None:
-            client.cancel_order(order_id)
-            log.info(f"[{ticker}] Limit not filled in {LIMIT_ORDER_TIMEOUT}s — cancelling, skip to next contract")
-            return "no_entry"
+            log.warning(f"[{ticker}] Market order not confirmed filled after 10s — skipping")
+            return "retry"
 
     # ---- Phase 3: manage position ----
     if series_is_live:
@@ -2323,11 +2305,10 @@ def main() -> None:
 
     stop_event = threading.Event()
 
-    # Start WebSocket ticker feed for live mode
-    if LIVE_MODE:
-        global _ticker_ws
-        _ticker_ws = KalshiTickerWS(auth)
-        _ticker_ws.start()
+    # Start WebSocket ticker feed — used by all modes for fast price data
+    global _ticker_ws
+    _ticker_ws = KalshiTickerWS(auth)
+    _ticker_ws.start()
 
     # Start one worker thread per series
     threads: list[threading.Thread] = []
