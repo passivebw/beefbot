@@ -1260,20 +1260,22 @@ def run_bracket_cycle(
                 log.debug(f"[{ticker}] Using WebSocket feed for entry scan")
 
             _ws_zero_streak = 0  # consecutive 0,0 reads before falling back to REST
+            pending_oid:  Optional[str] = None
+            pending_side: Optional[str] = None
 
             while time.time() < window_end_ts and not filled_side:
                 if use_ws:
                     yes_ask, no_ask = _ticker_ws.get_prices(ticker)
                     if yes_ask == 0 and no_ask == 0:
                         _ws_zero_streak += 1
-                        if _ws_zero_streak >= 40:  # ~2s of 0,0 — WS has no data for this ticker
+                        if _ws_zero_streak >= 40:
                             log.warning(f"[{ticker}] WebSocket no data after 2s — falling back to REST")
                             use_ws = False
                         else:
                             time.sleep(0.05)
                         continue
                     _ws_zero_streak = 0
-                    log.debug(f"[{ticker}] live scan (WS): yes_ask={yes_ask}c no_ask={no_ask}c target<={entry_c}c")
+                    log.debug(f"[{ticker}] live scan (WS): yes_ask={yes_ask}c no_ask={no_ask}c band=[{entry_min_c},{entry_c}]")
                 else:
                     try:
                         ob = client.get_orderbook(ticker, expiry_ts)
@@ -1283,40 +1285,52 @@ def run_bracket_cycle(
                         continue
                     yes_ask = ob.yes_ask or 0
                     no_ask  = ob.no_ask  or 0
-                    log.debug(f"[{ticker}] live scan (REST): yes_ask={yes_ask}c no_ask={no_ask}c target<={entry_c}c")
+                    log.debug(f"[{ticker}] live scan (REST): yes_ask={yes_ask}c no_ask={no_ask}c band=[{entry_min_c},{entry_c}]")
 
-                # Place order when ask is within the entry band
-                if yes_ask > 0 and entry_min_c <= yes_ask <= entry_c and not yes_oid:
-                    yes_oid = client.place_order(ticker, "yes", "limit", entry_c)
-                    log.info(f"[{ticker}] YES ask={yes_ask}c in band [{entry_min_c},{entry_c}] — placed BUY limit id={yes_oid}")
-                if no_ask > 0 and entry_min_c <= no_ask <= entry_c and not no_oid:
-                    no_oid = client.place_order(ticker, "no", "limit", entry_c)
-                    log.info(f"[{ticker}] NO ask={no_ask}c in band [{entry_min_c},{entry_c}] — placed BUY limit id={no_oid}")
-
-                # Check fill status of any placed orders
-                for side, oid in [("yes", yes_oid), ("no", no_oid)]:
-                    if not oid:
-                        continue
+                # If we have a pending order, check if it filled
+                if pending_oid:
                     try:
-                        status, fill_p = client.get_order_status(oid, side)
+                        status, fill_p = client.get_order_status(pending_oid, pending_side)
+                        if status == "filled":
+                            filled_side  = pending_side
+                            entry_filled = fill_p
+                            log.info(f"[{ticker}] FILLED: {filled_side.upper()} @ {entry_filled}c")
+                            break
+                        elif status == "canceled":
+                            # Order was rejected/canceled — re-scan
+                            pending_oid = None
+                            pending_side = None
                     except Exception:
-                        continue
-                    if status == "filled":
-                        filled_side  = side
-                        entry_filled = fill_p
-                        other_oid = no_oid if side == "yes" else yes_oid
-                        if other_oid:
-                            client.cancel_order(other_oid)
-                        break
+                        pass
+                    time.sleep(0.05 if use_ws else ORDER_POLL_INTERVAL)
+                    continue
 
-                if not filled_side:
+                # Scan: take the FIRST side that enters the band — single order, no dual-side risk
+                trigger_side = None
+                trigger_ask  = 0
+                if yes_ask > 0 and entry_min_c <= yes_ask <= entry_c:
+                    trigger_side, trigger_ask = "yes", yes_ask
+                elif no_ask > 0 and entry_min_c <= no_ask <= entry_c:
+                    trigger_side, trigger_ask = "no", no_ask
+
+                if trigger_side:
+                    # Place taker limit at current ask — fills immediately, no resting dual-side risk
+                    try:
+                        oid = client.place_order(ticker, trigger_side, "limit", trigger_ask)
+                        if oid:
+                            pending_oid  = oid
+                            pending_side = trigger_side
+                            log.info(f"[{ticker}] {trigger_side.upper()} ask={trigger_ask}c in band — BUY limit @ {trigger_ask}c  id={oid}")
+                    except Exception as e:
+                        log.warning(f"[{ticker}] Entry order error: {e}")
+
+                if not filled_side and not pending_oid:
                     time.sleep(0.05 if use_ws else ORDER_POLL_INTERVAL)
 
-            # Window closed with no fill — cancel any open orders
+            # Window closed with unfilled pending order — cancel it
             if not filled_side:
-                for oid in [yes_oid, no_oid]:
-                    if oid:
-                        client.cancel_order(oid)
+                if pending_oid:
+                    client.cancel_order(pending_oid)
                 log.info(f"[{ticker}] Bracket r{round_num}: window closed with no fill — done")
                 break
 
