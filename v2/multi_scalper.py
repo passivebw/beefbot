@@ -296,21 +296,11 @@ def _mode_tag(series: str) -> str:
     return "🔴 LIVE" if (LIVE_MODE and (not LIVE_SERIES or series in LIVE_SERIES)) else "📄 PAPER"
 
 def tg_trade_entry(profile: str, series: str, side: str, entry: int) -> None:
-    _send_discord(
-        f"🟡 **ENTRY** | {profile}\n"
-        f"Market: {series} | Side: {side.upper()} @ {entry}c\n"
-        f"TP: {TAKE_PROFIT_CENTS}c | SL: {STOP_LOSS_CENTS}c | {_mode_tag(series)}"
-    )
+    pass  # per-trade notifications disabled — summaries sent at 8am/8pm only
 
 def tg_trade_exit(profile: str, series: str, side: str, entry: int,
                   exit_c: int, reason: str, pnl: int) -> None:
-    icon = "✅" if pnl > 0 else "❌" if pnl < 0 else "➖"
-    label = reason.replace("_", " ").title()
-    _send_discord(
-        f"{icon} **{label}** | {profile}\n"
-        f"Market: {series} | Side: {side.upper()} | Entry: {entry}c → Exit: {exit_c}c\n"
-        f"P&L: {pnl:+}c (${pnl/100:+.2f}) | {_mode_tag(series)}"
-    )
+    pass  # per-trade notifications disabled — summaries sent at 8am/8pm only
 
 def tg_circuit_breaker(profile: str, daily_pnl: int) -> None:
     _send_discord(
