@@ -275,38 +275,41 @@ PROFILES: dict[str, dict] = {
 ACTIVE_PROFILE = "moderate"
 
 # ---------------------------------------------------------------------------
-# Circuit breaker — daily loss limit (shared across all worker threads)
+# Circuit breaker — 24-hour rolling loss limit (shared across all worker threads)
 # ---------------------------------------------------------------------------
 
 _daily_pnl_lock       = threading.Lock()
-_daily_pnl_cents      = 0    # running P&L for today (UTC)
-_daily_pnl_date       = ""   # date string "YYYY-MM-DD" — reset when day rolls over
-_cb_alerted_date      = ""   # date we last sent a circuit breaker Discord alert
+_daily_pnl_cents      = 0              # running P&L in the current 24h window
+_cb_triggered_at: Optional[float] = None  # timestamp when limit was first hit
+_cb_alerted       = False             # whether we've sent the Discord alert this trip
 DAILY_LOSS_LIMIT_CENTS = -500  # overridden by profile at startup
 
-def _check_and_reset_daily() -> None:
-    """Reset daily P&L counter when UTC date changes."""
-    global _daily_pnl_cents, _daily_pnl_date
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    with _daily_pnl_lock:
-        if _daily_pnl_date != today:
-            _daily_pnl_cents = 0
-            _daily_pnl_date  = today
-
 def circuit_breaker_open() -> bool:
-    """Return True if daily loss limit has been hit — no new trades.
-    Always returns False in paper mode (circuit breaker is live-only)."""
+    """Return True if the 24-hour rolling loss limit has been hit.
+    Resets automatically 24 hours after it was first triggered.
+    Always returns False in paper mode."""
     if not LIVE_MODE:
         return False
-    _check_and_reset_daily()
+    global _cb_triggered_at, _daily_pnl_cents, _cb_alerted
     with _daily_pnl_lock:
-        return _daily_pnl_cents <= DAILY_LOSS_LIMIT_CENTS
+        if _daily_pnl_cents <= DAILY_LOSS_LIMIT_CENTS:
+            # Still tripped — check if 24 hrs have elapsed since trigger
+            if _cb_triggered_at is not None and time.time() - _cb_triggered_at >= 86400:
+                # 24 hrs up — reset
+                _daily_pnl_cents  = 0
+                _cb_triggered_at  = None
+                _cb_alerted       = False
+                return False
+            return True
+        return False
 
 def record_daily_pnl(pnl_cents: int) -> None:
-    global _daily_pnl_cents
-    _check_and_reset_daily()
+    global _daily_pnl_cents, _cb_triggered_at
     with _daily_pnl_lock:
         _daily_pnl_cents += pnl_cents
+        # Record the moment the limit is first crossed
+        if _daily_pnl_cents <= DAILY_LOSS_LIMIT_CENTS and _cb_triggered_at is None:
+            _cb_triggered_at = time.time()
 
 # ---------------------------------------------------------------------------
 # Discord alerts (optional — requires DISCORD_WEBHOOK_URL in .env)
@@ -1196,15 +1199,14 @@ def run_cycle(
     with _daily_pnl_lock:
         daily_total = _daily_pnl_cents
     if circuit_breaker_open():
-        global _cb_alerted_date
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        global _cb_alerted
         with _daily_pnl_lock:
-            already_alerted = (_cb_alerted_date == today)
+            already_alerted = _cb_alerted
             if not already_alerted:
-                _cb_alerted_date = today
+                _cb_alerted = True
         if not already_alerted:
             tg_circuit_breaker(profile, daily_total)
-            log.warning(f"CIRCUIT BREAKER: daily loss limit hit ({daily_total}c) — pausing new trades")
+            log.warning(f"CIRCUIT BREAKER: 24h loss limit hit ({daily_total}c) — pausing new trades for 24hrs")
 
     log.info(
         f"[{ticker}] CLOSED  side={filled_side}  entry={entry_cents}c  "

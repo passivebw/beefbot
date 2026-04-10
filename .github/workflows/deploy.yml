@@ -28,8 +28,8 @@ jobs:
               systemctl disable $svc 2>/dev/null || true
             done
 
-            # moderate - port 8000 - PAPER (live paused)
-            printf '[Unit]\nDescription=Kalshi Bot (moderate) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nEnvironment=PYTHONUNBUFFERED=1\nExecStart=/opt/kalshi-bot/venv/bin/python3 -u v2/multi_scalper.py --profile moderate --port 8000\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/moderate-live.log\nStandardError=append:/opt/kalshi-bot/logs/moderate-live.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-moderate.service
+            # moderate - port 8000 - LIVE BTC,SOL,ETH,DOGE,XRP,HYPE
+            printf '[Unit]\nDescription=Kalshi Bot (moderate) LIVE\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nEnvironment=PYTHONUNBUFFERED=1\nExecStart=/opt/kalshi-bot/venv/bin/python3 -u v2/multi_scalper.py --profile moderate --port 8000 --live --live-series KXBTC15M,KXSOL15M,KXETH15M,KXDOGE15M,KXXRP15M,KXHYPE15M\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/moderate-live.log\nStandardError=append:/opt/kalshi-bot/logs/moderate-live.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-moderate.service
 
             # mid-momentum - port 8004 - PAPER all 7 markets (replaces risky-low)
             printf '[Unit]\nDescription=Kalshi Bot (mid-momentum) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile mid-momentum --port 8004\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/mid-momentum.log\nStandardError=append:/opt/kalshi-bot/logs/mid-momentum.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-mid-momentum.service
