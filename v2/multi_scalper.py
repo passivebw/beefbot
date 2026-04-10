@@ -1022,10 +1022,11 @@ def run_cycle(
     time_stop_active = False  # True during final TIME_STOP_SECONDS — SL disabled, ride to expiry
     tp_order_id: Optional[str] = None  # resting SELL limit at TP price
 
-    def _market_sell_live() -> Optional[int]:
-        """Place a market SELL (taker) and return actual fill price, or None on failure."""
+    def _market_sell_live(current_bid: int) -> Optional[int]:
+        """Place a taker SELL at current bid and return actual fill price, or None on failure."""
         try:
-            sell_id = client.place_order(ticker, filled_side, "limit", 1, action="sell")
+            # Use current bid as limit — guarantees fill at market price without giving away at 1c
+            sell_id = client.place_order(ticker, filled_side, "limit", max(current_bid, 1), action="sell")
             if not sell_id:
                 return None
             for _ in range(15):
@@ -1096,9 +1097,9 @@ def run_cycle(
                 if tp_order_id:
                     client.cancel_order(tp_order_id)
                     tp_order_id = None
-                actual = _market_sell_live()
+                actual = _market_sell_live(bid)
                 exit_cents = actual if actual is not None else mid
-                log.info(f"[{ticker}] SL hit mid={mid}c — market sold @ {exit_cents}c")
+                log.info(f"[{ticker}] SL hit mid={mid}c bid={bid}c — sold @ {exit_cents}c")
             else:
                 exit_cents = dynamic_sl
                 log.info(f"[{ticker}] PAPER SL  mid={mid}c  exit@{exit_cents}c")
