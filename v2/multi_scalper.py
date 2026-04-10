@@ -197,8 +197,8 @@ PROFILES: dict[str, dict] = {
         "strategy":                       "bracket",
         "BRACKET_ENTRY_CENTS":            90,
         "BRACKET_ENTRY_MIN_CENTS":        80,    # entry band: 80-90c
-        "BRACKET_TP_ALERT_CENTS":         100,   # no TP — ride to expiry at 100c
-        "BRACKET_SELL_CENTS":             100,
+        "BRACKET_TP_ALERT_CENTS":         97,    # TP at 97c — lock in profit, don't ride expiry cliff
+        "BRACKET_SELL_CENTS":             97,
         "BRACKET_SL_CENTS":               40,   # fixed SL — caps worst case at -40c
         "BRACKET_SL_ALERT_CENTS":         43,
         "BRACKET_WINDOW_START_SECONDS":   660,   # start at 11 min in (last 4 min)
@@ -1713,69 +1713,51 @@ def series_worker(
             # The polling loop above catches it within ~40s naturally.
             continue
 
-        # Momentum profiles: 3-window entry system
-        # Window 1: after ENTRY_WAIT_SECONDS, scan until 5-min mark
-        # Window 2: spot check at 5-min mark (scan ~60s)
-        # Window 3: spot check at 10-min mark / last 5 min (scan ~60s)
-        # Re-entry is allowed in later windows if a prior trade already closed.
+        # Momentum profiles: continuous scan from contract open, re-enter after each close.
+        # New entries stop 5 min before expiry. Active trades ride out with SL/TP/time-stop.
         contract_open_ts = expiry_ts - 900
-        w1_start_ts = contract_open_ts + ENTRY_WAIT_SECONDS
-        w2_ts       = contract_open_ts + 300   # 5 min in
-        w3_ts       = contract_open_ts + 600   # 10 min in (last 5 min)
+        entry_cutoff_ts  = expiry_ts - 300  # no new entries inside last 5 min
 
-        windows = [
-            (1, w1_start_ts, w2_ts,        False),  # (window#, start, scan_end, spot_check)
-            (2, w2_ts,       w2_ts + 60,   True),
-            (3, w3_ts,       w3_ts + 60,   True),
-        ]
+        # Wait until contract opens (skip if already past open)
+        wait_s = contract_open_ts - time.time()
+        if wait_s > 0:
+            log.info(f"[{ticker}] Waiting {wait_s:.0f}s for contract open...")
+            time.sleep(wait_s)
 
-        for win_num, win_start, scan_end, spot_check in windows:
-            if stop_event.is_set():
-                break
+        log.info(f"[{ticker}] Entry window open — scanning until 5 min before expiry")
 
-            # Skip window if not enough time left
+        while not stop_event.is_set():
             tte_now = expiry_ts - time.time()
-            if tte_now < TIME_STOP_SECONDS + 60:
-                log.info(f"[{ticker}] Not enough time for window {win_num} — done with contract")
+            if tte_now < 300:
+                log.info(f"[{ticker}] Entry window closed (5 min left) — no more entries this contract")
                 break
-
-            # Sleep until window opens
-            wait_s = win_start - time.time()
-            if wait_s > 0:
-                log.info(f"[{ticker}] Window {win_num} opens in {wait_s:.0f}s — waiting")
-                time.sleep(wait_s)
 
             if circuit_breaker_open():
-                log.info(f"[{ticker}] Circuit breaker — skipping remaining windows")
+                log.info(f"[{ticker}] Circuit breaker — skipping contract")
                 break
 
-            log.info(f"[{ticker}] Window {win_num} {'spot check' if spot_check else 'scan'} starting")
+            try:
+                status = run_cycle(
+                    client, conn, log, series, profile,
+                    ticker, expiry_ts,
+                    skip_wait=True,
+                    scan_end_ts=entry_cutoff_ts,
+                )
+            except Exception as e:
+                log.error(f"Cycle error: {e}", exc_info=True)
+                status = "retry"
+                time.sleep(3)
 
-            # Retry loop within each window (handles transient API errors)
-            while not stop_event.is_set():
-                try:
-                    status = run_cycle(
-                        client, conn, log, series, profile,
-                        ticker, expiry_ts,
-                        skip_wait=True,          # timing managed here in series_worker
-                        scan_end_ts=scan_end,
-                    )
-                except Exception as e:
-                    log.error(f"Cycle error (window {win_num}): {e}", exc_info=True)
-                    status = "retry"
-                    time.sleep(3)
-
-                if status == "traded":
-                    log.info(f"[{ticker}] Window {win_num}: trade closed — next window eligible for re-entry")
-                    break  # move to next window
-                elif status == "no_entry":
-                    log.info(f"[{ticker}] Window {win_num}: no entry — moving to next window")
-                    break  # move to next window
-                elif status == "retry":
-                    log.info(f"[{ticker}] Window {win_num}: transient error — retrying within window")
-                    # Only retry if scan window hasn't expired
-                    if time.time() >= scan_end:
-                        break
+            if status == "traded":
+                log.info(f"[{ticker}] Trade closed — re-checking entry window for re-entry")
+                # Loop continues: re-enter if still within entry window
+            elif status == "no_entry":
+                log.info(f"[{ticker}] No signal in entry window — done with contract")
+                break
+            elif status == "retry":
+                log.info(f"[{ticker}] Transient error — retrying")
+                if time.time() >= entry_cutoff_ts:
+                    break
 
         if not stop_event.is_set():
             sleep_until_next_contract(log)
