@@ -1422,7 +1422,10 @@ def run_bracket_cycle(
                         client.cancel_order(tp_order_id)
                         tp_order_id = None
                     try:
-                        sell_id = client.place_order(ticker, filled_side, "limit", sl_c, action="sell")
+                        # Use min(sl_c, bid) — if market already gapped below sl_c, sell at
+                        # current bid for immediate fill rather than waiting 60s with unfillable limit
+                        sell_price = min(sl_c, bid) if bid > 0 else sl_c
+                        sell_id = client.place_order(ticker, filled_side, "limit", sell_price, action="sell")
                         actual = None
                         if sell_id:
                             for _ in range(30):
@@ -1441,7 +1444,7 @@ def run_bracket_cycle(
                         exit_cents = mid
                 else:
                     exit_cents = sl_c
-                log.info(f"[{ticker}] STOP_LOSS  mid={mid}c <= {sl_c}c — exit@{exit_cents}c")
+                log.info(f"[{ticker}] STOP_LOSS  mid={mid}c bid={bid}c sl={sl_c}c — exit@{exit_cents}c")
                 break
 
             if tte <= 0:
@@ -1589,7 +1592,8 @@ def resume_live_monitor(
                 client.cancel_order(tp_order_id)
                 tp_order_id = None
             try:
-                sell_id = client.place_order(ticker, side, "limit", sl_c, action="sell")
+                sell_price = min(sl_c, bid) if bid > 0 else sl_c
+                sell_id = client.place_order(ticker, side, "limit", sell_price, action="sell")
                 actual = None
                 if sell_id:
                     for _ in range(30):
@@ -1605,7 +1609,7 @@ def resume_live_monitor(
             except Exception as e:
                 log.warning(f"[{ticker}] Recovery SL limit sell error: {e}")
                 exit_cents = mid
-            log.info(f"[{ticker}] STOP_LOSS  mid={mid}c <= {sl_c}c — exit@{exit_cents}c")
+            log.info(f"[{ticker}] STOP_LOSS  mid={mid}c bid={bid}c sl={sl_c}c — exit@{exit_cents}c")
             break
 
         if tte <= 0:
