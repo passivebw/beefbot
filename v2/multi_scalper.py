@@ -1780,6 +1780,7 @@ def series_worker(
 
         # Momentum profiles: continuous scan, re-enter after each close.
         # Timing driven by profile: ENTRY_START_SECONDS (default 0) and ENTRY_CUTOFF_SECONDS (default 300).
+        cfg              = PROFILES.get(profile, {})
         contract_open_ts = expiry_ts - 900
         entry_start_s    = cfg.get("ENTRY_START_SECONDS", 0)
         entry_cutoff_s   = cfg.get("ENTRY_CUTOFF_SECONDS", 300)
