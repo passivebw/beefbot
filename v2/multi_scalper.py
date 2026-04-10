@@ -136,6 +136,55 @@ PROFILES: dict[str, dict] = {
         "EXCLUDED_SERIES":          {"KXHYPE15M", "KXBNB15M"},
     },
     # ------------------------------------------------------------------
+    # Experimental paper profiles — replacing risky-low and risky-mid
+    # ------------------------------------------------------------------
+    "mid-momentum": {
+        # Momentum between moderate (62-72c) and late-sniper (80-90c).
+        # Stronger signal, more room to run. Scan from minute 5 onward.
+        "MOMENTUM_THRESHOLD_CENTS": 73,
+        "MOMENTUM_MIN_ENTRY_CENTS": 73,
+        "MOMENTUM_MAX_ENTRY_CENTS": 83,
+        "ENTRY_START_SECONDS":      300,   # wait until minute 5 for direction to establish
+        "ENTRY_CUTOFF_SECONDS":     300,   # no new entries in last 5 min
+        "SCAN_WINDOW_SECONDS":      900,
+        "TAKE_PROFIT_CENTS":        93,
+        "STOP_LOSS_CENTS":          63,
+        "SL_OFFSET_CENTS":          10,    # dynamic SL = entry - 10c
+        "SL_ALERT_CENTS":           66,
+        "TIME_STOP_SECONDS":        120,
+        "DAILY_LOSS_LIMIT_CENTS":  -500,
+    },
+    "fade": {
+        # Contrarian bracket: buy the underdog at 8-15c when one side is at 85-92c.
+        # Risk 8-15c to make 25-30c if market reverses. Needs ~10% win rate to break even.
+        "strategy":                       "bracket",
+        "BRACKET_ENTRY_CENTS":            15,
+        "BRACKET_ENTRY_MIN_CENTS":        8,
+        "BRACKET_TP_ALERT_CENTS":         40,
+        "BRACKET_SELL_CENTS":             38,
+        "BRACKET_SL_CENTS":               3,
+        "BRACKET_SL_ALERT_CENTS":         5,
+        "BRACKET_WINDOW_START_SECONDS":   540,   # last 6 min
+        "BRACKET_WINDOW_DURATION_SECONDS": 360,
+        "DAILY_LOSS_LIMIT_CENTS":        -500,
+    },
+    "late-moderate": {
+        # Same signal as moderate but only in the last 6 min of contract.
+        # More established direction, fewer trades, higher conviction.
+        "MOMENTUM_THRESHOLD_CENTS": 65,
+        "MOMENTUM_MIN_ENTRY_CENTS": 62,
+        "MOMENTUM_MAX_ENTRY_CENTS": 72,
+        "ENTRY_START_SECONDS":      420,   # start scanning at minute 7
+        "ENTRY_CUTOFF_SECONDS":     180,   # stop 3 min before expiry
+        "SCAN_WINDOW_SECONDS":      900,
+        "TAKE_PROFIT_CENTS":        85,
+        "STOP_LOSS_CENTS":          50,
+        "SL_OFFSET_CENTS":          12,
+        "SL_ALERT_CENTS":           55,
+        "TIME_STOP_SECONDS":        120,
+        "DAILY_LOSS_LIMIT_CENTS":  -500,
+    },
+    # ------------------------------------------------------------------
     # Bracket profiles — place limit BUY on both YES and NO at open,
     # ride whichever fills to a TP alert, then SELL limit at (alert-3c).
     # No stop loss. Loop within window. Paper only.
@@ -1727,23 +1776,26 @@ def series_worker(
             # The polling loop above catches it within ~40s naturally.
             continue
 
-        # Momentum profiles: continuous scan from contract open, re-enter after each close.
-        # New entries stop 5 min before expiry. Active trades ride out with SL/TP/time-stop.
+        # Momentum profiles: continuous scan, re-enter after each close.
+        # Timing driven by profile: ENTRY_START_SECONDS (default 0) and ENTRY_CUTOFF_SECONDS (default 300).
         contract_open_ts = expiry_ts - 900
-        entry_cutoff_ts  = expiry_ts - 300  # no new entries inside last 5 min
+        entry_start_s    = cfg.get("ENTRY_START_SECONDS", 0)
+        entry_cutoff_s   = cfg.get("ENTRY_CUTOFF_SECONDS", 300)
+        entry_start_ts   = contract_open_ts + entry_start_s
+        entry_cutoff_ts  = expiry_ts - entry_cutoff_s
 
-        # Wait until contract opens (skip if already past open)
-        wait_s = contract_open_ts - time.time()
+        # Wait until entry window opens
+        wait_s = entry_start_ts - time.time()
         if wait_s > 0:
-            log.info(f"[{ticker}] Waiting {wait_s:.0f}s for contract open...")
+            log.info(f"[{ticker}] Entry window opens in {wait_s:.0f}s (+{entry_start_s}s into contract) — waiting...")
             time.sleep(wait_s)
 
-        log.info(f"[{ticker}] Entry window open — scanning until 5 min before expiry")
+        log.info(f"[{ticker}] Entry window open — scanning until {entry_cutoff_s}s before expiry")
 
         while not stop_event.is_set():
             tte_now = expiry_ts - time.time()
-            if tte_now < 300:
-                log.info(f"[{ticker}] Entry window closed (5 min left) — no more entries this contract")
+            if tte_now < entry_cutoff_s:
+                log.info(f"[{ticker}] Entry window closed ({entry_cutoff_s}s left) — no more entries this contract")
                 break
 
             if circuit_breaker_open():
