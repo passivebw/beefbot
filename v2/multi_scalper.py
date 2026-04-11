@@ -1213,7 +1213,7 @@ def run_cycle(
         f"exit={exit_cents}c  reason={exit_reason}  "
         f"PnL={sign}{pnl_cents}c / {sign}${pnl_usd:.4f}"
     )
-    return "traded"
+    return "traded_sl" if exit_reason == "stop_loss" else "traded"
 
 # ---------------------------------------------------------------------------
 # Bracket strategy (risky-low / risky-mid / risky-high-early / risky-high-late)
@@ -1818,8 +1818,11 @@ def series_worker(
                 time.sleep(3)
 
             if status == "traded":
-                log.info(f"[{ticker}] Trade closed — re-checking entry window for re-entry")
+                log.info(f"[{ticker}] Trade closed (TP/time-stop) — re-checking entry window")
                 # Loop continues: re-enter if still within entry window
+            elif status == "traded_sl":
+                log.info(f"[{ticker}] Stop loss hit — no re-entry this contract")
+                break
             elif status == "no_entry":
                 log.info(f"[{ticker}] No signal in entry window — done with contract")
                 break
