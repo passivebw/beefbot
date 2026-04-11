@@ -1869,12 +1869,9 @@ def series_worker(
                 status = "retry"
                 time.sleep(3)
 
-            if status == "traded":
-                log.info(f"[{ticker}] Trade closed (TP/time-stop) — re-checking entry window")
-                # Loop continues: re-enter if still within entry window
-            elif status == "traded_sl":
-                log.info(f"[{ticker}] Stop loss hit — no re-entry this contract")
-                break
+            if status in ("traded", "traded_sl"):
+                log.info(f"[{ticker}] Trade closed — re-checking entry window")
+                # Loop continues: re-enter only if price re-enters valid band
             elif status == "no_entry":
                 log.info(f"[{ticker}] No signal in entry window — done with contract")
                 break
