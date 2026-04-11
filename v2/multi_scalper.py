@@ -69,7 +69,7 @@ STOP_LOSS_CENTS          = 50   # exit if mid drops back to 50c
 SL_OFFSET_CENTS          = 12   # SL = entry - SL_OFFSET_CENTS (floored at STOP_LOSS_CENTS)
 SL_ALERT_CENTS           = 55   # switch to fast polling when mid drops here
 TIME_STOP_SECONDS        = 120  # exit at whatever price with 2 min left
-CONTRACTS                = 1
+CONTRACTS                = 3
 
 MARKET_POLL_INTERVAL = 1   # seconds between contract detection polls
 ORDER_POLL_INTERVAL  = 1   # seconds between fill/exit checks
@@ -252,7 +252,7 @@ PROFILES: dict[str, dict] = {
         "BRACKET_SL_ALERT_CENTS":         43,
         "BRACKET_WINDOW_START_SECONDS":   660,   # start at 11 min in (last 4 min)
         "BRACKET_WINDOW_DURATION_SECONDS": 240,  # 4-min window
-        "DAILY_LOSS_LIMIT_CENTS":        -500,
+        "DAILY_LOSS_LIMIT_CENTS":       -1000,   # -$10 at 3 contracts
         "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
     # Paper: wider entry band + mid SL — compare vs live's 30c SL
