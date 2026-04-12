@@ -1870,8 +1870,8 @@ def series_worker(
                 time.sleep(3)
 
             if status in ("traded", "traded_sl"):
-                log.info(f"[{ticker}] Trade closed — re-checking entry window")
-                # Loop continues: re-enter only if price re-enters valid band
+                log.info(f"[{ticker}] Trade closed — cooling down 30s before re-entry scan")
+                time.sleep(30)  # prevent instant re-entry spiral
             elif status == "no_entry":
                 log.info(f"[{ticker}] No signal in entry window — done with contract")
                 break
