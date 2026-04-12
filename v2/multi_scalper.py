@@ -284,42 +284,44 @@ _cb_triggered_at: Optional[float] = None  # timestamp when limit was first hit
 _cb_alerted       = False             # whether we've sent the Discord alert this trip
 DAILY_LOSS_LIMIT_CENTS = -500  # overridden by profile at startup
 
-# SL-rate circuit breaker — trips if too many SLs fire in a short window (paper + live)
-_sl_rate_lock         = threading.Lock()
-_sl_timestamps:  list = []            # timestamps of recent stop-loss exits
-SL_RATE_COUNT         = 3             # number of SLs that triggers the breaker
-SL_RATE_WINDOW_S      = 300           # rolling window in seconds (5 min)
-_sl_rate_tripped      = False         # True once tripped; reset after 1 hr
-_sl_rate_tripped_at: Optional[float] = None
+# SL-rate circuit breaker — per-series, trips if too many SLs fire in a short window (paper + live)
+_sl_rate_lock                          = threading.Lock()
+_sl_timestamps:  dict[str, list]       = {}   # series -> list of SL timestamps
+_sl_rate_tripped: dict[str, bool]      = {}   # series -> tripped flag
+_sl_rate_tripped_at: dict[str, float]  = {}   # series -> trip timestamp
+SL_RATE_COUNT    = 3                          # SLs within window that trips breaker
+SL_RATE_WINDOW_S = 300                        # rolling window in seconds (5 min)
 
-def record_sl_exit() -> bool:
-    """Record a stop-loss exit. Returns True if the SL-rate breaker just tripped."""
-    global _sl_timestamps, _sl_rate_tripped, _sl_rate_tripped_at
+def record_sl_exit(series: str) -> bool:
+    """Record a stop-loss exit for a series. Returns True if the breaker just tripped."""
     now = time.time()
     with _sl_rate_lock:
         # Auto-reset after 1 hour
-        if _sl_rate_tripped and _sl_rate_tripped_at and now - _sl_rate_tripped_at >= 3600:
-            _sl_rate_tripped    = False
-            _sl_rate_tripped_at = None
-            _sl_timestamps      = []
-        if _sl_rate_tripped:
+        if _sl_rate_tripped.get(series) and now - _sl_rate_tripped_at.get(series, 0) >= 3600:
+            _sl_rate_tripped[series]    = False
+            _sl_rate_tripped_at[series] = 0
+            _sl_timestamps[series]      = []
+        if _sl_rate_tripped.get(series):
             return False  # already tripped, don't re-alert
         # Prune old timestamps outside the window
-        _sl_timestamps = [t for t in _sl_timestamps if now - t < SL_RATE_WINDOW_S]
-        _sl_timestamps.append(now)
-        if len(_sl_timestamps) >= SL_RATE_COUNT:
-            _sl_rate_tripped    = True
-            _sl_rate_tripped_at = now
+        ts = _sl_timestamps.get(series, [])
+        ts = [t for t in ts if now - t < SL_RATE_WINDOW_S]
+        ts.append(now)
+        _sl_timestamps[series] = ts
+        if len(ts) >= SL_RATE_COUNT:
+            _sl_rate_tripped[series]    = True
+            _sl_rate_tripped_at[series] = now
             return True
         return False
 
-def sl_rate_breaker_open() -> bool:
-    """Return True if the SL-rate circuit breaker is active."""
+def sl_rate_breaker_open(series: str) -> bool:
+    """Return True if the SL-rate circuit breaker is active for this series."""
     now = time.time()
     with _sl_rate_lock:
-        if _sl_rate_tripped and _sl_rate_tripped_at and now - _sl_rate_tripped_at >= 3600:
+        if _sl_rate_tripped.get(series) and now - _sl_rate_tripped_at.get(series, 0) >= 3600:
+            _sl_rate_tripped[series] = False
             return False
-        return _sl_rate_tripped
+        return _sl_rate_tripped.get(series, False)
 
 def circuit_breaker_open() -> bool:
     """Return True if the 24-hour rolling loss limit has been hit.
@@ -983,7 +985,7 @@ def run_cycle(
     if circuit_breaker_open():
         log.info(f"[{ticker}] Circuit breaker active — skipping (daily loss limit hit)")
         return "no_entry"
-    if sl_rate_breaker_open():
+    if sl_rate_breaker_open(series):
         log.info(f"[{ticker}] SL rate breaker active — skipping (too many SLs recently)")
         return "no_entry"
 
@@ -1261,9 +1263,9 @@ def run_cycle(
         f"PnL={sign}{pnl_cents}c / {sign}${pnl_usd:.4f}"
     )
     if exit_reason == "stop_loss":
-        if record_sl_exit():
+        if record_sl_exit(series):
             tg_sl_rate_breaker(profile)
-            log.warning(f"SL RATE BREAKER: {SL_RATE_COUNT} SLs in {SL_RATE_WINDOW_S}s — pausing entries for 1hr")
+            log.warning(f"SL RATE BREAKER [{series}]: {SL_RATE_COUNT} SLs in {SL_RATE_WINDOW_S}s — pausing for 1hr")
         return "traded_sl"
     return "traded"
 
@@ -1298,7 +1300,7 @@ def run_bracket_cycle(
       6. Loop back to step 2 if still within window.
       7. After window closes, let last open trade ride to natural expiry.
     """
-    if circuit_breaker_open() or sl_rate_breaker_open():
+    if circuit_breaker_open() or sl_rate_breaker_open(series):
         log.info(f"[{ticker}] Circuit breaker active — skipping bracket cycle")
         return
 
@@ -1336,7 +1338,7 @@ def run_bracket_cycle(
 
     round_num = 0
     while time.time() < window_end_ts:
-        if circuit_breaker_open() or sl_rate_breaker_open():
+        if circuit_breaker_open() or sl_rate_breaker_open(series):
             log.info(f"[{ticker}] Circuit breaker hit — stopping bracket rounds")
             break
 
@@ -1853,7 +1855,7 @@ def series_worker(
                 log.info(f"[{ticker}] Entry window closed ({entry_cutoff_s}s left) — no more entries this contract")
                 break
 
-            if circuit_breaker_open() or sl_rate_breaker_open():
+            if circuit_breaker_open() or sl_rate_breaker_open(series):
                 log.info(f"[{ticker}] Circuit breaker — skipping contract")
                 break
 
