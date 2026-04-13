@@ -255,17 +255,17 @@ PROFILES: dict[str, dict] = {
         "DAILY_LOSS_LIMIT_CENTS":       -1500,   # -$15 at 5 contracts
         "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
-    # Paper: wider entry band + mid SL — compare vs live's 30c SL
-    "late-sniper-ride": {
+    # Paper: enter earlier (6 min left) at 75-85c — more room to TP, less gap risk
+    "late-sniper-early": {
         "strategy":                       "bracket",
-        "BRACKET_ENTRY_CENTS":            90,
-        "BRACKET_ENTRY_MIN_CENTS":        80,    # entry band: 80-90c (was 85-90c)
-        "BRACKET_TP_ALERT_CENTS":         100,   # no TP — ride to expiry
-        "BRACKET_SELL_CENTS":             100,
-        "BRACKET_SL_CENTS":               70,    # paper: tighter than live 30c to compare outcomes
-        "BRACKET_SL_ALERT_CENTS":         73,
-        "BRACKET_WINDOW_START_SECONDS":   660,
-        "BRACKET_WINDOW_DURATION_SECONDS": 240,
+        "BRACKET_ENTRY_CENTS":            85,
+        "BRACKET_ENTRY_MIN_CENTS":        75,    # entry band: 75-85c
+        "BRACKET_TP_ALERT_CENTS":         97,
+        "BRACKET_SELL_CENTS":             97,
+        "BRACKET_SL_CENTS":               40,
+        "BRACKET_SL_ALERT_CENTS":         43,
+        "BRACKET_WINDOW_START_SECONDS":   540,   # 9 min in (6 min left)
+        "BRACKET_WINDOW_DURATION_SECONDS": 180,  # 3 min entry window
         "DAILY_LOSS_LIMIT_CENTS":        -500,
         "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
