@@ -544,6 +544,25 @@ CREATE TABLE IF NOT EXISTS bracket_trade_log (
 );
 """
 
+CREATE_BTC_CONTEXT_SQL = """
+CREATE TABLE IF NOT EXISTS btc_context_log (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at          TEXT    NOT NULL DEFAULT (datetime('now','utc')),
+    kalshi_ticker       TEXT    NOT NULL,
+    series              TEXT    NOT NULL,
+    profile             TEXT    NOT NULL,
+    exit_reason         TEXT,               -- take_profit / stop_loss / no_trade / etc
+    pnl_cents           INTEGER,
+    btc_price_open      REAL,               -- BTC spot at contract open
+    btc_price_entry     REAL,               -- BTC spot at entry time (or scan time)
+    btc_pct_15m         REAL,               -- % change over full contract window
+    btc_price_5m_ago    REAL,               -- BTC spot 5 min before entry
+    btc_pct_5m          REAL,               -- % change over last 5 min before entry
+    entry_cents         INTEGER,
+    entry_side          TEXT
+);
+"""
+
 _db_lock = threading.Lock()
 
 
@@ -552,6 +571,7 @@ def init_db(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute(CREATE_TABLE_SQL)
+    conn.execute(CREATE_BTC_CONTEXT_SQL)
     # Migrate: add series column if missing (old bracket_scalper.py schema)
     cols = {row[1] for row in conn.execute("PRAGMA table_info(bracket_trade_log)")}
     if "series" not in cols:
@@ -560,6 +580,62 @@ def init_db(db_path: str) -> sqlite3.Connection:
         conn.execute("ALTER TABLE bracket_trade_log ADD COLUMN profile TEXT NOT NULL DEFAULT 'moderate'")
     conn.commit()
     return conn
+
+
+# ---------------------------------------------------------------------------
+# BTC spot price (Binance public API — no auth required)
+# ---------------------------------------------------------------------------
+
+_btc_price_cache: dict = {}   # {"price": float, "ts": float}
+_btc_price_lock  = threading.Lock()
+
+def get_btc_spot() -> Optional[float]:
+    """Fetch BTC/USDT spot price from Binance. Cached for 10s to avoid hammering."""
+    now = time.time()
+    with _btc_price_lock:
+        if _btc_price_cache and now - _btc_price_cache.get("ts", 0) < 10:
+            return _btc_price_cache["price"]
+    try:
+        import urllib.request
+        url = "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
+        with urllib.request.urlopen(url, timeout=3) as r:
+            data = json.loads(r.read())
+        price = float(data["price"])
+        with _btc_price_lock:
+            _btc_price_cache["price"] = price
+            _btc_price_cache["ts"]    = now
+        return price
+    except Exception:
+        return None
+
+
+def log_btc_context(
+    conn: sqlite3.Connection,
+    ticker: str,
+    series: str,
+    profile: str,
+    exit_reason: Optional[str],
+    pnl_cents: Optional[int],
+    btc_open: Optional[float],
+    btc_entry: Optional[float],
+    btc_5m_ago: Optional[float],
+    entry_cents: Optional[int],
+    entry_side: Optional[str],
+) -> None:
+    pct_15m = ((btc_entry - btc_open) / btc_open * 100) if btc_open and btc_entry else None
+    pct_5m  = ((btc_entry - btc_5m_ago) / btc_5m_ago * 100) if btc_5m_ago and btc_entry else None
+    with _db_lock:
+        conn.execute(
+            """INSERT INTO btc_context_log
+               (kalshi_ticker,series,profile,exit_reason,pnl_cents,
+                btc_price_open,btc_price_entry,btc_pct_15m,
+                btc_price_5m_ago,btc_pct_5m,entry_cents,entry_side)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (ticker, series, profile, exit_reason, pnl_cents,
+             btc_open, btc_entry, pct_15m, btc_5m_ago, pct_5m,
+             entry_cents, entry_side),
+        )
+        conn.commit()
 
 
 def log_trade(
@@ -1336,6 +1412,11 @@ def run_bracket_cycle(
         f"window={win_duration}s  profile={profile}"
     )
 
+    # BTC context — snapshot prices at window open for later analysis
+    btc_at_window_open = get_btc_spot()
+    btc_at_5m_before:  Optional[float] = None
+    btc_at_entry:      Optional[float] = None
+
     round_num = 0
     while time.time() < window_end_ts:
         if circuit_breaker_open() or sl_rate_breaker_open(series):
@@ -1397,8 +1478,9 @@ def run_bracket_cycle(
                     try:
                         status, fill_p = client.get_order_status(pending_oid, pending_side)
                         if status == "filled":
-                            filled_side  = pending_side
-                            entry_filled = fill_p
+                            filled_side      = pending_side
+                            entry_filled     = fill_p
+                            btc_at_entry     = get_btc_spot()
                             log.info(f"[{ticker}] FILLED: {filled_side.upper()} @ {entry_filled}c")
                             break
                         elif status == "canceled":
@@ -1458,10 +1540,14 @@ def run_bracket_cycle(
                 if yes_ask > 0 and entry_min_c <= yes_ask <= entry_c:
                     filled_side  = "yes"
                     entry_filled = yes_ask
+                    btc_at_5m_before = get_btc_spot() if btc_at_5m_before is None else btc_at_5m_before
+                    btc_at_entry     = get_btc_spot()
                     break
                 if no_ask > 0 and entry_min_c <= no_ask <= entry_c:
                     filled_side  = "no"
                     entry_filled = no_ask
+                    btc_at_5m_before = get_btc_spot() if btc_at_5m_before is None else btc_at_5m_before
+                    btc_at_entry     = get_btc_spot()
                     break
 
                 time.sleep(ORDER_POLL_INTERVAL)
@@ -1597,6 +1683,11 @@ def run_bracket_cycle(
         log_trade(
             conn, ticker, series, profile, "bracket", filled_side,
             entry_filled, exit_cents, exit_reason, pnl_cents,
+        )
+        log_btc_context(
+            conn, ticker, series, profile, exit_reason, pnl_cents,
+            btc_at_window_open, btc_at_entry, btc_at_5m_before,
+            entry_filled, filled_side,
         )
         record_daily_pnl(pnl_cents)
 
