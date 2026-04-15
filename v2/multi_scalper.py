@@ -1574,6 +1574,30 @@ def run_bracket_cycle(
 
         log.info(f"[{ticker}] Bracket FILL: {filled_side.upper()} @ {entry_filled}c (limit was {entry_c}c)")
 
+        # Bad fill guard (live only) — if price moved significantly during order placement
+        # and we filled below the entry band floor, exit immediately rather than holding
+        # an unintended position (e.g. SOL gap from 80c → 44c between scan and fill).
+        if series_is_live and entry_filled < entry_min_c:
+            log.warning(
+                f"[{ticker}] BAD FILL @ {entry_filled}c (band floor {entry_min_c}c) "
+                f"— price moved during order placement, exiting immediately"
+            )
+            try:
+                ob     = client.get_orderbook(ticker, expiry_ts)
+                bid    = (ob.yes_bid if filled_side == "yes" else ob.no_bid) or 0
+                sell_p = max(bid, 1)
+                client.place_order(ticker, filled_side, "limit", sell_p, action="sell")
+                exit_cents = sell_p
+            except Exception as ex:
+                log.warning(f"[{ticker}] Bad fill exit error: {ex}")
+                exit_cents = entry_filled
+            pnl_cents = exit_cents - entry_filled
+            log.warning(f"[{ticker}] Bad fill exit: sold @ {exit_cents}c  PnL={pnl_cents:+}c")
+            log_trade(conn, ticker, series, profile, "bracket", filled_side,
+                      entry_filled, exit_cents, "bad_fill", pnl_cents)
+            record_daily_pnl(series, pnl_cents * CONTRACTS)
+            break
+
         if sl_c is not None:
             log.info(f"[{ticker}] SL active @ {sl_c}c — monitoring mid, will market sell if hit")
 
