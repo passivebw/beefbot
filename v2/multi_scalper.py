@@ -70,6 +70,11 @@ SL_OFFSET_CENTS          = 12   # SL = entry - SL_OFFSET_CENTS (floored at STOP_
 SL_ALERT_CENTS           = 55   # switch to fast polling when mid drops here
 TIME_STOP_SECONDS        = 120  # exit at whatever price with 2 min left
 CONTRACTS                = 5
+SERIES_CONTRACTS: dict[str, int] = {}  # per-series override; populated from profile at startup
+
+def contracts_for(series: str) -> int:
+    """Return contract count for this series — uses per-series override if set, else global."""
+    return SERIES_CONTRACTS.get(series, CONTRACTS)
 
 MARKET_POLL_INTERVAL = 1   # seconds between contract detection polls
 ORDER_POLL_INTERVAL  = 1   # seconds between fill/exit checks
@@ -253,6 +258,7 @@ PROFILES: dict[str, dict] = {
         "BRACKET_WINDOW_START_SECONDS":   660,   # start at 11 min in (last 4 min)
         "BRACKET_WINDOW_DURATION_SECONDS": 240,  # 4-min window
         "DAILY_LOSS_LIMIT_CENTS":       -1500,   # -$15 at 5 contracts
+        "SERIES_CONTRACTS":              {"KXSOL15M": 1},  # SOL at 1 contract until gap risk validated
         "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
     # Paper: enter earlier (6 min left) at 75-85c — more room to TP, less gap risk
@@ -673,7 +679,7 @@ def log_trade(
                (kalshi_ticker,series,profile,mode,side,contracts,entry_cents,
                 exit_cents,exit_reason,pnl_cents,pnl_usd)
                VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-            (ticker, series, profile, mode, side, CONTRACTS, entry_cents,
+            (ticker, series, profile, mode, side, contracts_for(series), entry_cents,
              exit_cents, exit_reason, pnl_cents, pnl_cents / 100.0),
         )
         conn.commit()
@@ -945,6 +951,7 @@ class KalshiClient:
         order_type: str,
         price_cents: Optional[int],
         action: str = "buy",
+        count: Optional[int] = None,
     ) -> Optional[str]:
         """Place a limit or market order. Returns order_id or None on failure."""
         path = "/trade-api/v2/portfolio/orders"
@@ -953,7 +960,7 @@ class KalshiClient:
             "action": action,
             "side": side,
             "type": order_type,
-            "count": CONTRACTS,
+            "count": count if count is not None else CONTRACTS,
         }
         if price_cents is not None:
             # Kalshi treats yes_price as the canonical price field.
@@ -1174,7 +1181,7 @@ def run_cycle(
     else:
         try:
             balance = client.get_balance()
-            if balance < signal_ask * CONTRACTS:
+            if balance < signal_ask * contracts_for(series):
                 log.warning(f"[{ticker}] Insufficient balance: {balance}c — skipping")
                 return "no_entry"
         except Exception as e:
@@ -1326,16 +1333,16 @@ def run_cycle(
     # ---- Record ----
     assert exit_reason and exit_cents is not None and entry_cents is not None
     pnl_cents = exit_cents - entry_cents
-    pnl_usd   = pnl_cents / 100.0 * CONTRACTS
+    pnl_usd   = pnl_cents / 100.0 * contracts_for(series)
     sign = "+" if pnl_cents >= 0 else ""
 
     log_trade(
         conn, ticker, series, profile, "momentum", filled_side,
-        entry_cents, exit_cents, exit_reason, pnl_cents * CONTRACTS,
+        entry_cents, exit_cents, exit_reason, pnl_cents * contracts_for(series),
     )
 
     # Update circuit breaker counter and send Discord alert
-    record_daily_pnl(series, pnl_cents * CONTRACTS)
+    record_daily_pnl(series, pnl_cents * contracts_for(series))
     if series_is_live:
         tg_trade_exit(profile, series, filled_side, entry_cents, exit_cents, exit_reason, pnl_cents)
     with _daily_pnl_lock:
@@ -1519,11 +1526,11 @@ def run_bracket_cycle(
                 if trigger_side:
                     # Place taker limit at current ask — fills immediately, no resting dual-side risk
                     try:
-                        oid = client.place_order(ticker, trigger_side, "limit", trigger_ask)
+                        oid = client.place_order(ticker, trigger_side, "limit", trigger_ask, count=contracts_for(series))
                         if oid:
                             pending_oid  = oid
                             pending_side = trigger_side
-                            log.info(f"[{ticker}] {trigger_side.upper()} ask={trigger_ask}c in band — BUY limit @ {trigger_ask}c  id={oid}")
+                            log.info(f"[{ticker}] {trigger_side.upper()} ask={trigger_ask}c in band — BUY limit @ {trigger_ask}c x{contracts_for(series)}  id={oid}")
                     except Exception as e:
                         log.warning(f"[{ticker}] Entry order error: {e}")
 
@@ -1595,7 +1602,7 @@ def run_bracket_cycle(
             log.warning(f"[{ticker}] Bad fill exit: sold @ {exit_cents}c  PnL={pnl_cents:+}c")
             log_trade(conn, ticker, series, profile, "bracket", filled_side,
                       entry_filled, exit_cents, "bad_fill", pnl_cents)
-            record_daily_pnl(series, pnl_cents * CONTRACTS)
+            record_daily_pnl(series, pnl_cents * contracts_for(series))
             break
 
         if sl_c is not None:
@@ -1729,7 +1736,7 @@ def run_bracket_cycle(
             btc_at_window_open, btc_at_entry, btc_at_5m_before,
             entry_filled, filled_side,
         )
-        record_daily_pnl(series, pnl_cents * CONTRACTS)
+        record_daily_pnl(series, pnl_cents * contracts_for(series))
         with _daily_pnl_lock:
             daily_total = _daily_pnl_cents.get(series, 0)
         if circuit_breaker_open(series):
@@ -2511,6 +2518,7 @@ def main() -> None:
     SL_ALERT_CENTS           = profile_cfg.get("SL_ALERT_CENTS",           SL_ALERT_CENTS)
     TIME_STOP_SECONDS        = profile_cfg.get("TIME_STOP_SECONDS",        TIME_STOP_SECONDS)
     DAILY_LOSS_LIMIT_CENTS   = profile_cfg["DAILY_LOSS_LIMIT_CENTS"]
+    SERIES_CONTRACTS.update(profile_cfg.get("SERIES_CONTRACTS", {}))
     LIVE_MODE                = args.live or os.environ.get("LIVE_MODE", "false").lower() == "true"
     raw_live_series          = args.live_series or os.environ.get("LIVE_SERIES", "")
     LIVE_SERIES              = {s.strip() for s in raw_live_series.split(",") if s.strip()}
