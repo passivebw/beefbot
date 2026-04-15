@@ -244,8 +244,8 @@ PROFILES: dict[str, dict] = {
     # ------------------------------------------------------------------
     "late-sniper": {
         "strategy":                       "bracket",
-        "BRACKET_ENTRY_CENTS":            87,
-        "BRACKET_ENTRY_MIN_CENTS":        80,    # entry band: 80-87c
+        "BRACKET_ENTRY_CENTS":            85,
+        "BRACKET_ENTRY_MIN_CENTS":        79,    # entry band: 79-85c
         "BRACKET_TP_ALERT_CENTS":         97,    # TP at 97c — lock in profit, don't ride expiry cliff
         "BRACKET_SELL_CENTS":             97,
         "BRACKET_SL_CENTS":               40,   # fixed SL — caps worst case at -47c
@@ -278,10 +278,10 @@ ACTIVE_PROFILE = "moderate"
 # Circuit breaker — 24-hour rolling loss limit (shared across all worker threads)
 # ---------------------------------------------------------------------------
 
-_daily_pnl_lock       = threading.Lock()
-_daily_pnl_cents      = 0              # running P&L in the current 24h window
-_cb_triggered_at: Optional[float] = None  # timestamp when limit was first hit
-_cb_alerted       = False             # whether we've sent the Discord alert this trip
+_daily_pnl_lock                              = threading.Lock()
+_daily_pnl_cents:  dict[str, int]            = {}  # series -> running P&L cents (live only)
+_cb_triggered_at:  dict[str, Optional[float]] = {}  # series -> trigger timestamp
+_cb_alerted:       dict[str, bool]            = {}  # series -> alerted flag
 DAILY_LOSS_LIMIT_CENTS = -500  # overridden by profile at startup
 
 # SL-rate circuit breaker — per-series, trips if too many SLs fire in a short window (paper + live)
@@ -323,32 +323,33 @@ def sl_rate_breaker_open(series: str) -> bool:
             return False
         return _sl_rate_tripped.get(series, False)
 
-def circuit_breaker_open() -> bool:
-    """Return True if the 24-hour rolling loss limit has been hit.
+def circuit_breaker_open(series: str) -> bool:
+    """Return True if the per-series 24-hour rolling loss limit has been hit.
     Resets automatically 24 hours after it was first triggered.
-    Always returns False in paper mode."""
-    if not LIVE_MODE:
+    Only applies to live series; always returns False in paper mode."""
+    if not LIVE_MODE or series not in LIVE_SERIES:
         return False
-    global _cb_triggered_at, _daily_pnl_cents, _cb_alerted
     with _daily_pnl_lock:
-        if _daily_pnl_cents <= DAILY_LOSS_LIMIT_CENTS:
-            # Still tripped — check if 24 hrs have elapsed since trigger
-            if _cb_triggered_at is not None and time.time() - _cb_triggered_at >= 86400:
-                # 24 hrs up — reset
-                _daily_pnl_cents  = 0
-                _cb_triggered_at  = None
-                _cb_alerted       = False
+        pnl = _daily_pnl_cents.get(series, 0)
+        if pnl <= DAILY_LOSS_LIMIT_CENTS:
+            triggered = _cb_triggered_at.get(series)
+            if triggered is not None and time.time() - triggered >= 86400:
+                # 24 hrs up — reset this series
+                _daily_pnl_cents[series]  = 0
+                _cb_triggered_at[series]  = None
+                _cb_alerted[series]       = False
                 return False
             return True
         return False
 
-def record_daily_pnl(pnl_cents: int) -> None:
-    global _daily_pnl_cents, _cb_triggered_at
+def record_daily_pnl(series: str, pnl_cents: int) -> None:
+    """Accumulate P&L for a live series toward the circuit breaker limit."""
+    if not LIVE_MODE or series not in LIVE_SERIES:
+        return
     with _daily_pnl_lock:
-        _daily_pnl_cents += pnl_cents
-        # Record the moment the limit is first crossed
-        if _daily_pnl_cents <= DAILY_LOSS_LIMIT_CENTS and _cb_triggered_at is None:
-            _cb_triggered_at = time.time()
+        _daily_pnl_cents[series] = _daily_pnl_cents.get(series, 0) + pnl_cents
+        if _daily_pnl_cents[series] <= DAILY_LOSS_LIMIT_CENTS and _cb_triggered_at.get(series) is None:
+            _cb_triggered_at[series] = time.time()
 
 # ---------------------------------------------------------------------------
 # Discord alerts (optional — requires DISCORD_WEBHOOK_URL in .env)
@@ -1058,7 +1059,7 @@ def run_cycle(
     """
 
     # Circuit breakers — skip new trades if loss limit or SL rate exceeded
-    if circuit_breaker_open():
+    if circuit_breaker_open(series):
         log.info(f"[{ticker}] Circuit breaker active — skipping (daily loss limit hit)")
         return "no_entry"
     if sl_rate_breaker_open(series):
@@ -1317,21 +1318,20 @@ def run_cycle(
         entry_cents, exit_cents, exit_reason, pnl_cents * CONTRACTS,
     )
 
-    # Update circuit breaker counter and send Telegram alert
-    record_daily_pnl(pnl_cents * CONTRACTS)
+    # Update circuit breaker counter and send Discord alert
+    record_daily_pnl(series, pnl_cents * CONTRACTS)
     if series_is_live:
         tg_trade_exit(profile, series, filled_side, entry_cents, exit_cents, exit_reason, pnl_cents)
     with _daily_pnl_lock:
-        daily_total = _daily_pnl_cents
-    if circuit_breaker_open():
-        global _cb_alerted
+        daily_total = _daily_pnl_cents.get(series, 0)
+    if circuit_breaker_open(series):
         with _daily_pnl_lock:
-            already_alerted = _cb_alerted
+            already_alerted = _cb_alerted.get(series, False)
             if not already_alerted:
-                _cb_alerted = True
+                _cb_alerted[series] = True
         if not already_alerted:
             tg_circuit_breaker(profile, daily_total)
-            log.warning(f"CIRCUIT BREAKER: 24h loss limit hit ({daily_total}c) — pausing new trades for 24hrs")
+            log.warning(f"CIRCUIT BREAKER [{series}]: 24h loss limit hit ({daily_total}c) — pausing new trades for 24hrs")
 
     log.info(
         f"[{ticker}] CLOSED  side={filled_side}  entry={entry_cents}c  "
@@ -1376,7 +1376,7 @@ def run_bracket_cycle(
       6. Loop back to step 2 if still within window.
       7. After window closes, let last open trade ride to natural expiry.
     """
-    if circuit_breaker_open() or sl_rate_breaker_open(series):
+    if circuit_breaker_open(series) or sl_rate_breaker_open(series):
         log.info(f"[{ticker}] Circuit breaker active — skipping bracket cycle")
         return
 
@@ -1419,7 +1419,7 @@ def run_bracket_cycle(
 
     round_num = 0
     while time.time() < window_end_ts:
-        if circuit_breaker_open() or sl_rate_breaker_open(series):
+        if circuit_breaker_open(series) or sl_rate_breaker_open(series):
             log.info(f"[{ticker}] Circuit breaker hit — stopping bracket rounds")
             break
 
@@ -1689,7 +1689,17 @@ def run_bracket_cycle(
             btc_at_window_open, btc_at_entry, btc_at_5m_before,
             entry_filled, filled_side,
         )
-        record_daily_pnl(pnl_cents * CONTRACTS)
+        record_daily_pnl(series, pnl_cents * CONTRACTS)
+        with _daily_pnl_lock:
+            daily_total = _daily_pnl_cents.get(series, 0)
+        if circuit_breaker_open(series):
+            with _daily_pnl_lock:
+                already_alerted = _cb_alerted.get(series, False)
+                if not already_alerted:
+                    _cb_alerted[series] = True
+            if not already_alerted:
+                tg_circuit_breaker(profile, daily_total)
+                log.warning(f"CIRCUIT BREAKER [{series}]: 24h loss limit hit ({daily_total}c) — pausing new trades for 24hrs")
 
         # If contract expired, no more rounds possible
         if exit_reason == "expired":
@@ -1946,7 +1956,7 @@ def series_worker(
                 log.info(f"[{ticker}] Entry window closed ({entry_cutoff_s}s left) — no more entries this contract")
                 break
 
-            if circuit_breaker_open() or sl_rate_breaker_open(series):
+            if circuit_breaker_open(series) or sl_rate_breaker_open(series):
                 log.info(f"[{ticker}] Circuit breaker — skipping contract")
                 break
 
