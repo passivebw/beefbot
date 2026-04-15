@@ -1689,7 +1689,7 @@ def run_bracket_cycle(
             btc_at_window_open, btc_at_entry, btc_at_5m_before,
             entry_filled, filled_side,
         )
-        record_daily_pnl(pnl_cents)
+        record_daily_pnl(pnl_cents * CONTRACTS)
 
         # If contract expired, no more rounds possible
         if exit_reason == "expired":
