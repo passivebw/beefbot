@@ -258,8 +258,8 @@ PROFILES: dict[str, dict] = {
         "BRACKET_WINDOW_START_SECONDS":   660,   # start at 11 min in (last 4 min)
         "BRACKET_WINDOW_DURATION_SECONDS": 240,  # 4-min window
         "DAILY_LOSS_LIMIT_CENTS":       -1500,   # -$15 at 5 contracts (BTC)
-        "SERIES_CONTRACTS":              {"KXSOL15M": 1},    # SOL at 1 contract until gap risk validated
-        "SERIES_DAILY_LOSS_LIMIT":       {"KXSOL15M": -500}, # SOL CB at -$5 (1 contract)
+        "SERIES_CONTRACTS":              {"KXETH15M": 1},    # ETH at 1 contract
+        "SERIES_DAILY_LOSS_LIMIT":       {"KXETH15M": -500}, # ETH CB at -$5 (1 contract)
         "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
     # Paper: enter earlier (6 min left) at 75-85c — more room to TP, less gap risk
@@ -1232,7 +1232,7 @@ def run_cycle(
         """Place a taker SELL at current bid and return actual fill price, or None on failure."""
         try:
             # Use current bid as limit — guarantees fill at market price without giving away at 1c
-            sell_id = client.place_order(ticker, filled_side, "limit", max(current_bid, 1), action="sell")
+            sell_id = client.place_order(ticker, filled_side, "limit", max(current_bid, 1), action="sell", count=contracts_for(series))
             if not sell_id:
                 return None
             for _ in range(15):
@@ -1248,7 +1248,7 @@ def run_cycle(
     # Price is well below TP at entry so this will never fill immediately.
     if series_is_live:
         try:
-            tp_order_id = client.place_order(ticker, filled_side, "limit", TAKE_PROFIT_CENTS, action="sell")
+            tp_order_id = client.place_order(ticker, filled_side, "limit", TAKE_PROFIT_CENTS, action="sell", count=contracts_for(series))
             if tp_order_id:
                 log.info(f"[{ticker}] Resting TP limit SELL @ {TAKE_PROFIT_CENTS}c  id={tp_order_id}")
             else:
@@ -1598,7 +1598,7 @@ def run_bracket_cycle(
                 ob     = client.get_orderbook(ticker, expiry_ts)
                 bid    = (ob.yes_bid if filled_side == "yes" else ob.no_bid) or 0
                 sell_p = max(bid, 1)
-                client.place_order(ticker, filled_side, "limit", sell_p, action="sell")
+                client.place_order(ticker, filled_side, "limit", sell_p, action="sell", count=contracts_for(series))
                 exit_cents = sell_p
             except Exception as ex:
                 log.warning(f"[{ticker}] Bad fill exit error: {ex}")
@@ -1618,7 +1618,7 @@ def run_bracket_cycle(
         tp_order_id: Optional[str] = None
         if series_is_live:
             try:
-                tp_order_id = client.place_order(ticker, filled_side, "limit", sell_c, action="sell")
+                tp_order_id = client.place_order(ticker, filled_side, "limit", sell_c, action="sell", count=contracts_for(series))
                 if tp_order_id:
                     log.info(f"[{ticker}] Resting TP limit SELL @ {sell_c}c  id={tp_order_id}")
                 else:
@@ -1682,7 +1682,7 @@ def run_bracket_cycle(
                         # Use min(sl_c, bid) — if market already gapped below sl_c, sell at
                         # current bid for immediate fill rather than waiting 60s with unfillable limit
                         sell_price = min(sl_c, bid) if bid > 0 else sl_c
-                        sell_id = client.place_order(ticker, filled_side, "limit", sell_price, action="sell")
+                        sell_id = client.place_order(ticker, filled_side, "limit", sell_price, action="sell", count=contracts_for(series))
                         actual = None
                         if sell_id:
                             for _ in range(30):
@@ -1805,6 +1805,7 @@ def resume_live_monitor(
     side: str,
     expiry_ts: float,
     cfg: dict,
+    series: str = "",
 ) -> None:
     """Resume monitoring an existing live position after a crash/restart.
     Places a fresh TP limit sell and runs the SL watch loop — skips entry phase."""
@@ -1817,7 +1818,7 @@ def resume_live_monitor(
     # Place resting TP limit sell
     tp_order_id: Optional[str] = None
     try:
-        tp_order_id = client.place_order(ticker, side, "limit", sell_c, action="sell")
+        tp_order_id = client.place_order(ticker, side, "limit", sell_c, action="sell", count=contracts_for(series))
         if tp_order_id:
             log.info(f"[{ticker}] Recovery TP SELL placed @ {sell_c}c  id={tp_order_id}")
         else:
@@ -1865,7 +1866,7 @@ def resume_live_monitor(
                 tp_order_id = None
             try:
                 sell_price = min(sl_c, bid) if bid > 0 else sl_c
-                sell_id = client.place_order(ticker, side, "limit", sell_price, action="sell")
+                sell_id = client.place_order(ticker, side, "limit", sell_price, action="sell", count=contracts_for(series))
                 actual = None
                 if sell_id:
                     for _ in range(30):
@@ -1961,7 +1962,7 @@ def series_worker(
                 log.warning(f"[{ticker}] Recovered {side.upper()} x{qty} position — resuming TP/SL monitor")
                 cfg = PROFILES.get(profile, {})
                 try:
-                    resume_live_monitor(client, log, ticker, side, expiry_ts, cfg)
+                    resume_live_monitor(client, log, ticker, side, expiry_ts, cfg, series=series)
                 except Exception as e:
                     log.error(f"[{ticker}] Resume monitor error: {e}", exc_info=True)
                 if not stop_event.is_set() and profile in BRACKET_PROFILE_NAMES:
