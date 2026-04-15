@@ -324,6 +324,23 @@ PROFILES: dict[str, dict] = {
         "DAILY_LOSS_LIMIT_CENTS":        -500,
         "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
+    # Paper: underdog — enter contracts leaning NO at 29-35c with 13 min left.
+    # Deep value: at 32c avg, win +65c (TP) vs lose -32c (expiry NO). Need only ~33% WR.
+    # Thesis: contracts at 30c with 13 min left are uncertain, not dead — BTC hovering near
+    # a strike can flip. Huge payoff ratio compensates for low hit rate.
+    # No SL — binary resolution or TP exit only.
+    "underdog": {
+        "strategy":                       "bracket",
+        "BRACKET_ENTRY_CENTS":            35,
+        "BRACKET_ENTRY_MIN_CENTS":        29,    # entry band: 29-35c
+        "BRACKET_TP_ALERT_CENTS":         97,
+        "BRACKET_SELL_CENTS":             97,
+        # No BRACKET_SL_CENTS — hold to TP or expiry, no stop
+        "BRACKET_WINDOW_START_SECONDS":   120,   # 2 min in (13 min left)
+        "BRACKET_WINDOW_DURATION_SECONDS": 300,  # 5 min window, cutoff at 7 min in (8 min left)
+        "DAILY_LOSS_LIMIT_CENTS":        -500,
+        "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
+    },
 }
 
 # Active profile name — set by --profile arg in main()

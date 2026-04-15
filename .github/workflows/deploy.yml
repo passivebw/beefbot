@@ -43,9 +43,12 @@ jobs:
             # momentum-ride - port 8004 - PAPER all markets, no SL, 48-62c entry at 11 min left
             printf '[Unit]\nDescription=Kalshi Bot (momentum-ride) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile momentum-ride --port 8004\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/momentum-ride.log\nStandardError=append:/opt/kalshi-bot/logs/momentum-ride.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-momentum-ride.service
 
+            # underdog - port 8003 - PAPER all markets, no SL, 29-35c entry at 13 min left
+            printf '[Unit]\nDescription=Kalshi Bot (underdog) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile underdog --port 8003\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/underdog.log\nStandardError=append:/opt/kalshi-bot/logs/underdog.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-underdog.service
+
             systemctl daemon-reload
-            systemctl enable kalshi-bot-late-sniper-live kalshi-bot-late-sniper-early kalshi-bot-mid-bracket kalshi-bot-expiry-hold kalshi-bot-momentum-ride
-            systemctl restart kalshi-bot-late-sniper-live kalshi-bot-late-sniper-early kalshi-bot-mid-bracket kalshi-bot-expiry-hold kalshi-bot-momentum-ride
+            systemctl enable kalshi-bot-late-sniper-live kalshi-bot-late-sniper-early kalshi-bot-mid-bracket kalshi-bot-expiry-hold kalshi-bot-momentum-ride kalshi-bot-underdog
+            systemctl restart kalshi-bot-late-sniper-live kalshi-bot-late-sniper-early kalshi-bot-mid-bracket kalshi-bot-expiry-hold kalshi-bot-momentum-ride kalshi-bot-underdog
 
             echo "Deploy complete: $(date)"
-            systemctl is-active kalshi-bot-late-sniper-live kalshi-bot-late-sniper-early kalshi-bot-mid-bracket kalshi-bot-expiry-hold kalshi-bot-momentum-ride
+            systemctl is-active kalshi-bot-late-sniper-live kalshi-bot-late-sniper-early kalshi-bot-mid-bracket kalshi-bot-expiry-hold kalshi-bot-momentum-ride kalshi-bot-underdog
