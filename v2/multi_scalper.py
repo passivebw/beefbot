@@ -269,13 +269,29 @@ PROFILES: dict[str, dict] = {
         "DAILY_LOSS_LIMIT_CENTS":        -500,
         "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
+    # Paper: medium-certainty contracts at 55-75c with 9 min left — lower break-even WR,
+    # bigger win payouts. Tests whether edge exists in uncertain/swinging contracts.
+    # At 65c entry: win=32c, lose=25c, need only 43.9% WR to break even.
+    "mid-bracket": {
+        "strategy":                       "bracket",
+        "BRACKET_ENTRY_CENTS":            75,
+        "BRACKET_ENTRY_MIN_CENTS":        55,    # entry band: 55-75c
+        "BRACKET_TP_ALERT_CENTS":         97,
+        "BRACKET_SELL_CENTS":             97,
+        "BRACKET_SL_CENTS":               40,
+        "BRACKET_SL_ALERT_CENTS":         43,
+        "BRACKET_WINDOW_START_SECONDS":   360,   # 6 min in (9 min left)
+        "BRACKET_WINDOW_DURATION_SECONDS": 300,  # 5 min window, cutoff at 11 min in
+        "DAILY_LOSS_LIMIT_CENTS":        -500,
+        "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
+    },
 }
 
 # Active profile name — set by --profile arg in main()
 ACTIVE_PROFILE = "moderate"
 
 # ---------------------------------------------------------------------------
-# Circuit breaker — 24-hour rolling loss limit (shared across all worker threads)
+# Circuit breaker — per-series 24-hour rolling loss limit (live series only)
 # ---------------------------------------------------------------------------
 
 _daily_pnl_lock                              = threading.Lock()

@@ -34,9 +34,12 @@ jobs:
             # late-sniper-early - port 8007 - PAPER BTC+SOL+ETH+DOGE+XRP, enter 6 min left at 75-85c
             printf '[Unit]\nDescription=Kalshi Bot (late-sniper-early) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile late-sniper-early --port 8007\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/late-sniper-early.log\nStandardError=append:/opt/kalshi-bot/logs/late-sniper-early.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-late-sniper-early.service
 
+            # mid-bracket - port 8006 - PAPER all markets, enter 9 min left at 55-75c
+            printf '[Unit]\nDescription=Kalshi Bot (mid-bracket) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile mid-bracket --port 8006\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/mid-bracket.log\nStandardError=append:/opt/kalshi-bot/logs/mid-bracket.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-mid-bracket.service
+
             systemctl daemon-reload
-            systemctl enable kalshi-bot-late-sniper-live kalshi-bot-late-sniper-early
-            systemctl restart kalshi-bot-late-sniper-live kalshi-bot-late-sniper-early
+            systemctl enable kalshi-bot-late-sniper-live kalshi-bot-late-sniper-early kalshi-bot-mid-bracket
+            systemctl restart kalshi-bot-late-sniper-live kalshi-bot-late-sniper-early kalshi-bot-mid-bracket
 
             echo "Deploy complete: $(date)"
-            systemctl is-active kalshi-bot-late-sniper-live kalshi-bot-late-sniper-early
+            systemctl is-active kalshi-bot-late-sniper-live kalshi-bot-late-sniper-early kalshi-bot-mid-bracket
