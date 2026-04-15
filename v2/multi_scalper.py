@@ -292,6 +292,38 @@ PROFILES: dict[str, dict] = {
         "DAILY_LOSS_LIMIT_CENTS":        -500,
         "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
+    # Paper: no SL — hold to TP at 97c or binary expiry. Entry at 62-72c with 8 min left.
+    # Avoids all SL gap-through risk on thin markets. Max loss = entry price (known at fill).
+    # At 67c avg: win +30c (TP) or +33c (expiry YES), lose -67c (expiry NO). Need ~67% WR.
+    "expiry-hold": {
+        "strategy":                       "bracket",
+        "BRACKET_ENTRY_CENTS":            72,
+        "BRACKET_ENTRY_MIN_CENTS":        62,    # entry band: 62-72c
+        "BRACKET_TP_ALERT_CENTS":         97,
+        "BRACKET_SELL_CENTS":             97,
+        # No BRACKET_SL_CENTS — hold to TP or expiry, no stop
+        "BRACKET_WINDOW_START_SECONDS":   420,   # 7 min in (8 min left)
+        "BRACKET_WINDOW_DURATION_SECONDS": 180,  # 3 min window
+        "DAILY_LOSS_LIMIT_CENTS":        -500,
+        "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
+    },
+    # Paper: momentum-ride — enter contracts mid-move at 48-62c with 11 min left.
+    # Riskier: lower entry = less certain, but payoff ratio is better (win more than you risk).
+    # At 55c avg: win +42c (TP) or +45c (expiry YES), lose -55c (expiry NO). Need ~55% WR.
+    # More time on clock means dips can recover — betting on continuation, not certainty.
+    # No SL — binary resolution or TP exit only.
+    "momentum-ride": {
+        "strategy":                       "bracket",
+        "BRACKET_ENTRY_CENTS":            62,
+        "BRACKET_ENTRY_MIN_CENTS":        48,    # entry band: 48-62c
+        "BRACKET_TP_ALERT_CENTS":         97,
+        "BRACKET_SELL_CENTS":             97,
+        # No BRACKET_SL_CENTS — hold to TP or expiry, no stop
+        "BRACKET_WINDOW_START_SECONDS":   240,   # 4 min in (11 min left)
+        "BRACKET_WINDOW_DURATION_SECONDS": 300,  # 5 min window, cutoff at 9 min in (6 min left)
+        "DAILY_LOSS_LIMIT_CENTS":        -500,
+        "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
+    },
 }
 
 # Active profile name — set by --profile arg in main()

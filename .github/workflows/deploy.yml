@@ -37,9 +37,15 @@ jobs:
             # mid-bracket - port 8006 - PAPER all markets, enter 9 min left at 55-75c
             printf '[Unit]\nDescription=Kalshi Bot (mid-bracket) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile mid-bracket --port 8006\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/mid-bracket.log\nStandardError=append:/opt/kalshi-bot/logs/mid-bracket.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-mid-bracket.service
 
+            # expiry-hold - port 8005 - PAPER all markets, no SL, 62-72c entry at 8 min left
+            printf '[Unit]\nDescription=Kalshi Bot (expiry-hold) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile expiry-hold --port 8005\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/expiry-hold.log\nStandardError=append:/opt/kalshi-bot/logs/expiry-hold.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-expiry-hold.service
+
+            # momentum-ride - port 8004 - PAPER all markets, no SL, 48-62c entry at 11 min left
+            printf '[Unit]\nDescription=Kalshi Bot (momentum-ride) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile momentum-ride --port 8004\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/momentum-ride.log\nStandardError=append:/opt/kalshi-bot/logs/momentum-ride.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-momentum-ride.service
+
             systemctl daemon-reload
-            systemctl enable kalshi-bot-late-sniper-live kalshi-bot-late-sniper-early kalshi-bot-mid-bracket
-            systemctl restart kalshi-bot-late-sniper-live kalshi-bot-late-sniper-early kalshi-bot-mid-bracket
+            systemctl enable kalshi-bot-late-sniper-live kalshi-bot-late-sniper-early kalshi-bot-mid-bracket kalshi-bot-expiry-hold kalshi-bot-momentum-ride
+            systemctl restart kalshi-bot-late-sniper-live kalshi-bot-late-sniper-early kalshi-bot-mid-bracket kalshi-bot-expiry-hold kalshi-bot-momentum-ride
 
             echo "Deploy complete: $(date)"
-            systemctl is-active kalshi-bot-late-sniper-live kalshi-bot-late-sniper-early kalshi-bot-mid-bracket
+            systemctl is-active kalshi-bot-late-sniper-live kalshi-bot-late-sniper-early kalshi-bot-mid-bracket kalshi-bot-expiry-hold kalshi-bot-momentum-ride
