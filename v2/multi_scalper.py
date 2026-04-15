@@ -2024,9 +2024,15 @@ def series_worker(
                 status = "retry"
                 time.sleep(3)
 
-            if status in ("traded", "traded_sl"):
-                log.info(f"[{ticker}] Trade closed — cooling down 30s before re-entry scan")
-                time.sleep(30)  # prevent instant re-entry spiral
+            if status == "traded":
+                # TP exit — contract is near resolved, no valid re-entry exists
+                traded_tickers.add(ticker)
+                log.info(f"[{ticker}] TP exit — contract done, moving to next")
+                break
+            elif status == "traded_sl":
+                # SL exit — allow re-entry after cooldown in case market recovers
+                log.info(f"[{ticker}] SL exit — cooling down 30s before re-entry scan")
+                time.sleep(30)
             elif status == "no_entry":
                 log.info(f"[{ticker}] No signal in entry window — done with contract")
                 break
