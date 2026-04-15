@@ -257,8 +257,9 @@ PROFILES: dict[str, dict] = {
         "BRACKET_SL_ALERT_CENTS":         43,
         "BRACKET_WINDOW_START_SECONDS":   660,   # start at 11 min in (last 4 min)
         "BRACKET_WINDOW_DURATION_SECONDS": 240,  # 4-min window
-        "DAILY_LOSS_LIMIT_CENTS":       -1500,   # -$15 at 5 contracts
-        "SERIES_CONTRACTS":              {"KXSOL15M": 1},  # SOL at 1 contract until gap risk validated
+        "DAILY_LOSS_LIMIT_CENTS":       -1500,   # -$15 at 5 contracts (BTC)
+        "SERIES_CONTRACTS":              {"KXSOL15M": 1},    # SOL at 1 contract until gap risk validated
+        "SERIES_DAILY_LOSS_LIMIT":       {"KXSOL15M": -500}, # SOL CB at -$5 (1 contract)
         "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
     # Paper: enter earlier (6 min left) at 75-85c — more room to TP, less gap risk
@@ -304,7 +305,11 @@ _daily_pnl_lock                              = threading.Lock()
 _daily_pnl_cents:  dict[str, int]            = {}  # series -> running P&L cents (live only)
 _cb_triggered_at:  dict[str, Optional[float]] = {}  # series -> trigger timestamp
 _cb_alerted:       dict[str, bool]            = {}  # series -> alerted flag
-DAILY_LOSS_LIMIT_CENTS = -500  # overridden by profile at startup
+DAILY_LOSS_LIMIT_CENTS = -500                        # default; overridden by profile at startup
+SERIES_DAILY_LOSS_LIMIT: dict[str, int] = {}         # per-series override
+
+def loss_limit_for(series: str) -> int:
+    return SERIES_DAILY_LOSS_LIMIT.get(series, DAILY_LOSS_LIMIT_CENTS)
 
 # SL-rate circuit breaker — per-series, trips if too many SLs fire in a short window (paper + live)
 _sl_rate_lock                          = threading.Lock()
@@ -353,7 +358,7 @@ def circuit_breaker_open(series: str) -> bool:
         return False
     with _daily_pnl_lock:
         pnl = _daily_pnl_cents.get(series, 0)
-        if pnl <= DAILY_LOSS_LIMIT_CENTS:
+        if pnl <= loss_limit_for(series):
             triggered = _cb_triggered_at.get(series)
             if triggered is not None and time.time() - triggered >= 86400:
                 # 24 hrs up — reset this series
@@ -370,7 +375,7 @@ def record_daily_pnl(series: str, pnl_cents: int) -> None:
         return
     with _daily_pnl_lock:
         _daily_pnl_cents[series] = _daily_pnl_cents.get(series, 0) + pnl_cents
-        if _daily_pnl_cents[series] <= DAILY_LOSS_LIMIT_CENTS and _cb_triggered_at.get(series) is None:
+        if _daily_pnl_cents[series] <= loss_limit_for(series) and _cb_triggered_at.get(series) is None:
             _cb_triggered_at[series] = time.time()
 
 # ---------------------------------------------------------------------------
@@ -2519,6 +2524,7 @@ def main() -> None:
     TIME_STOP_SECONDS        = profile_cfg.get("TIME_STOP_SECONDS",        TIME_STOP_SECONDS)
     DAILY_LOSS_LIMIT_CENTS   = profile_cfg["DAILY_LOSS_LIMIT_CENTS"]
     SERIES_CONTRACTS.update(profile_cfg.get("SERIES_CONTRACTS", {}))
+    SERIES_DAILY_LOSS_LIMIT.update(profile_cfg.get("SERIES_DAILY_LOSS_LIMIT", {}))
     LIVE_MODE                = args.live or os.environ.get("LIVE_MODE", "false").lower() == "true"
     raw_live_series          = args.live_series or os.environ.get("LIVE_SERIES", "")
     LIVE_SERIES              = {s.strip() for s in raw_live_series.split(",") if s.strip()}
