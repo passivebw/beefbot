@@ -2179,19 +2179,99 @@ def stats_reporter(conn: sqlite3.Connection, stop_event: threading.Event) -> Non
             log.error(f"Stats error: {e}")
 
 # ---------------------------------------------------------------------------
-# Scheduled Discord summary (8am and 8pm ET, all profiles, last 12h)
+# Scheduled Discord summary (8am and 10pm ET)
 # ---------------------------------------------------------------------------
 
-_SUMMARY_HOURS_ET = {8, 20}
+_SUMMARY_HOURS_ET = {8, 22}  # 8am and 10pm ET
+
+_LIVE_PROFILES  = {"late-sniper"}
+_PAPER_PROFILES = {"late-sniper-early", "mid-bracket", "expiry-hold", "momentum-ride", "underdog"}
+
+
+def _build_summary_section(conn: sqlite3.Connection, profiles: set, is_live: bool) -> list[str]:
+    """Build lines for one section (live or paper) of the Discord summary."""
+    from collections import defaultdict
+
+    live_flag = 1 if is_live else 0
+
+    # Today's stats per profile
+    today_rows = conn.execute(
+        """SELECT profile,
+                  COUNT(*) as trades,
+                  SUM(CASE WHEN exit_reason='take_profit' THEN 1 ELSE 0 END) as wins,
+                  SUM(pnl_cents * contracts) as pnl
+           FROM bracket_trade_log
+           WHERE date(created_at) = date('now')
+             AND is_live = ?
+           GROUP BY profile""",
+        (live_flag,)
+    ).fetchall()
+    today_by_profile = {r[0]: r for r in today_rows if r[0] in profiles}
+
+    # Today's best market per profile
+    best_mkt_rows = conn.execute(
+        """SELECT profile, series,
+                  SUM(pnl_cents * contracts) as pnl
+           FROM bracket_trade_log
+           WHERE date(created_at) = date('now')
+             AND is_live = ?
+           GROUP BY profile, series""",
+        (live_flag,)
+    ).fetchall()
+    best_by_profile: dict = defaultdict(lambda: ("—", 0))
+    for profile, series, pnl in best_mkt_rows:
+        if profile not in profiles:
+            continue
+        pnl = pnl or 0
+        short = series.replace("KX", "").replace("15M", "")
+        if pnl > best_by_profile[profile][1]:
+            best_by_profile[profile] = (short, pnl)
+
+    # All-time stats per profile
+    alltime_rows = conn.execute(
+        """SELECT profile,
+                  COUNT(*) as trades,
+                  SUM(pnl_cents * contracts) as pnl
+           FROM bracket_trade_log
+           WHERE is_live = ?
+           GROUP BY profile""",
+        (live_flag,)
+    ).fetchall()
+    alltime_by_profile = {r[0]: r for r in alltime_rows if r[0] in profiles}
+
+    lines = []
+    for profile in sorted(profiles):
+        td = today_by_profile.get(profile)
+        at = alltime_by_profile.get(profile)
+
+        today_trades = td[1] if td else 0
+        today_wins   = td[2] if td else 0
+        today_pnl    = (td[3] or 0) if td else 0
+        today_wr     = today_wins / today_trades * 100 if today_trades else 0
+
+        at_trades = at[1] if at else 0
+        at_pnl    = (at[2] or 0) if at else 0
+
+        best_mkt, best_pnl = best_by_profile[profile]
+
+        p_icon = "✅" if today_pnl > 0 else "❌" if today_pnl < 0 else "➖"
+        lines.append(
+            f"{p_icon} **{profile}**\n"
+            f"  Today: {today_trades}t | {today_wr:.0f}% WR | ${today_pnl/100:+.2f} | Best: {best_mkt} (${best_pnl/100:+.2f})\n"
+            f"  All-time: {at_trades}t | ${at_pnl/100:+.2f}"
+        )
+
+    return lines
+
 
 def discord_summary_scheduler(conn: sqlite3.Connection, stop_event: threading.Event) -> None:
-    """Fire a Discord summary at 8am and 8pm ET showing last 12h across all profiles."""
-    fired_hours: set[str] = set()  # "YYYY-MM-DD-HH" keys to prevent double-fire
+    """Fire a Discord summary at 8am and 10pm ET — live section then paper section."""
+    fired_hours: set[str] = set()
     while not stop_event.is_set():
         time.sleep(60)
         try:
             now_et = datetime.now(timezone.utc) + timedelta(hours=-4 if _is_edt() else -5)
-            hour = now_et.hour
+            hour   = now_et.hour
             if hour not in _SUMMARY_HOURS_ET:
                 continue
             key = now_et.strftime("%Y-%m-%d-") + str(hour)
@@ -2201,64 +2281,15 @@ def discord_summary_scheduler(conn: sqlite3.Connection, stop_event: threading.Ev
             et_time = now_et.strftime("%I:%M %p ET")
             label   = "Morning" if hour == 8 else "Evening"
 
-            # Pull last 12h stats by profile
-            profile_rows = conn.execute(
-                """SELECT profile,
-                          COUNT(*) as trades,
-                          SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins,
-                          SUM(pnl_cents) as pnl
-                   FROM bracket_trade_log
-                   WHERE created_at >= datetime('now', '-12 hours')
-                   GROUP BY profile
-                   ORDER BY pnl DESC"""
-            ).fetchall()
+            live_lines  = _build_summary_section(conn, _LIVE_PROFILES,  is_live=True)
+            paper_lines = _build_summary_section(conn, _PAPER_PROFILES, is_live=False)
 
-            if not profile_rows:
-                fired_hours.add(key)
-                continue
+            lines = [f"📊 **{label} Update** | {et_time}\n"]
+            lines.append("🔴 **LIVE**")
+            lines.extend(live_lines or ["  No trades today"])
+            lines.append("\n📄 **PAPER**")
+            lines.extend(paper_lines or ["  No trades today"])
 
-            # Pull last 12h stats by profile + market
-            mkt_rows = conn.execute(
-                """SELECT profile, series,
-                          COUNT(*) as trades,
-                          SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END) as wins,
-                          SUM(pnl_cents) as pnl
-                   FROM bracket_trade_log
-                   WHERE created_at >= datetime('now', '-12 hours')
-                   GROUP BY profile, series
-                   ORDER BY profile, pnl DESC"""
-            ).fetchall()
-
-            # Index market rows by profile
-            from collections import defaultdict
-            mkt_by_profile: dict = defaultdict(list)
-            for profile, series, t, w, p in mkt_rows:
-                short = series.replace("KX", "").replace("15M", "")  # e.g. BTC, ETH
-                mkt_by_profile[profile].append((short, t or 0, w or 0, p or 0))
-
-            total_pnl = sum(r[3] or 0 for r in profile_rows)
-            icon = "📈" if total_pnl >= 0 else "📉"
-            lines = [f"{icon} **{label} Summary** | {et_time} | Last 12h\n"]
-
-            for profile, trades, wins, pnl in profile_rows:
-                trades = trades or 0
-                wins   = wins or 0
-                pnl    = pnl or 0
-                wp     = wins / trades * 100 if trades else 0
-                p_icon = "✅" if pnl > 0 else "❌" if pnl < 0 else "➖"
-                lines.append(
-                    f"{p_icon} **{profile}** — {trades}t | {wp:.0f}% win | {pnl:+}c (${pnl/100:+.2f})"
-                )
-                # Per-market breakdown (compact, one line)
-                mkts = mkt_by_profile.get(profile, [])
-                if mkts:
-                    mkt_parts = []
-                    for short, t, w, p in mkts:
-                        wp_m = w / t * 100 if t else 0
-                        mkt_parts.append(f"{short} {t}t {wp_m:.0f}% {p:+}c")
-                    lines.append("  " + " | ".join(mkt_parts))
-
-            lines.append(f"\n**Combined: {total_pnl:+}c (${total_pnl/100:+.2f})**")
             _send_discord("\n".join(lines))
 
             fired_hours.add(key)
