@@ -1701,7 +1701,7 @@ def run_bracket_cycle(
         if use_ws_monitor:
             _ticker_ws.subscribe([ticker])
             log.info(f"[{ticker}] Monitor using WebSocket @ 0.5s polling")
-        poll_interval = 0.5 if use_ws_monitor else 2
+        poll_interval = 0.5 if use_ws_monitor else 1
 
         while True:
             # Check if resting TP order filled (REST — order status has no WS feed)
