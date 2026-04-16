@@ -257,9 +257,7 @@ PROFILES: dict[str, dict] = {
         "BRACKET_SL_ALERT_CENTS":         43,
         "BRACKET_WINDOW_START_SECONDS":   660,   # start at 11 min in (last 4 min)
         "BRACKET_WINDOW_DURATION_SECONDS": 240,  # 4-min window
-        "DAILY_LOSS_LIMIT_CENTS":       -1500,   # -$15 at 5 contracts (BTC)
-        "SERIES_CONTRACTS":              {"KXETH15M": 1},    # ETH at 1 contract
-        "SERIES_DAILY_LOSS_LIMIT":       {"KXETH15M": -500}, # ETH CB at -$5 (1 contract)
+        "DAILY_LOSS_LIMIT_CENTS":       -1500,   # -$15 per series (5 contracts, BTC + ETH)
         "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
     # Paper: enter earlier (6 min left) at 75-85c — more room to TP, less gap risk
