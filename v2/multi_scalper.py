@@ -2194,12 +2194,19 @@ def _build_summary_section(conn: sqlite3.Connection, profiles: set, is_live: boo
 
     live_flag = 1 if is_live else 0
 
-    # Today's stats per profile
+    def roi_pct(pnl_c_x_contracts: int, cost_c_x_contracts: int) -> str:
+        """ROI% = pnl / cost_basis. Returns formatted string like +12.3% or N/A."""
+        if not cost_c_x_contracts:
+            return "N/A"
+        return f"{pnl_c_x_contracts / cost_c_x_contracts * 100:+.1f}%"
+
+    # Today's stats per profile (pnl and cost both weighted by contracts)
     today_rows = conn.execute(
         """SELECT profile,
                   COUNT(*) as trades,
                   SUM(CASE WHEN exit_reason='take_profit' THEN 1 ELSE 0 END) as wins,
-                  SUM(pnl_cents * contracts) as pnl
+                  SUM(pnl_cents * contracts) as pnl,
+                  SUM(entry_cents * contracts) as cost
            FROM bracket_trade_log
            WHERE date(created_at) = date('now')
              AND is_live = ?
@@ -2208,30 +2215,35 @@ def _build_summary_section(conn: sqlite3.Connection, profiles: set, is_live: boo
     ).fetchall()
     today_by_profile = {r[0]: r for r in today_rows if r[0] in profiles}
 
-    # Today's best market per profile
+    # Today's best market per profile (by ROI%)
     best_mkt_rows = conn.execute(
         """SELECT profile, series,
-                  SUM(pnl_cents * contracts) as pnl
+                  SUM(pnl_cents * contracts) as pnl,
+                  SUM(entry_cents * contracts) as cost
            FROM bracket_trade_log
            WHERE date(created_at) = date('now')
              AND is_live = ?
            GROUP BY profile, series""",
         (live_flag,)
     ).fetchall()
-    best_by_profile: dict = defaultdict(lambda: ("—", 0))
-    for profile, series, pnl in best_mkt_rows:
+    best_by_profile: dict = defaultdict(lambda: ("—", 0, 1))  # (series, pnl, cost)
+    for profile, series, pnl, cost in best_mkt_rows:
         if profile not in profiles:
             continue
-        pnl = pnl or 0
+        pnl  = pnl  or 0
+        cost = cost or 1
         short = series.replace("KX", "").replace("15M", "")
-        if pnl > best_by_profile[profile][1]:
-            best_by_profile[profile] = (short, pnl)
+        curr_roi = best_by_profile[profile][1] / best_by_profile[profile][2]
+        this_roi = pnl / cost
+        if this_roi > curr_roi:
+            best_by_profile[profile] = (short, pnl, cost)
 
     # All-time stats per profile
     alltime_rows = conn.execute(
         """SELECT profile,
                   COUNT(*) as trades,
-                  SUM(pnl_cents * contracts) as pnl
+                  SUM(pnl_cents * contracts) as pnl,
+                  SUM(entry_cents * contracts) as cost
            FROM bracket_trade_log
            WHERE is_live = ?
            GROUP BY profile""",
@@ -2247,18 +2259,20 @@ def _build_summary_section(conn: sqlite3.Connection, profiles: set, is_live: boo
         today_trades = td[1] if td else 0
         today_wins   = td[2] if td else 0
         today_pnl    = (td[3] or 0) if td else 0
+        today_cost   = (td[4] or 0) if td else 0
         today_wr     = today_wins / today_trades * 100 if today_trades else 0
 
         at_trades = at[1] if at else 0
         at_pnl    = (at[2] or 0) if at else 0
+        at_cost   = (at[3] or 0) if at else 0
 
-        best_mkt, best_pnl = best_by_profile[profile]
+        best_mkt, best_pnl, best_cost = best_by_profile[profile]
 
         p_icon = "✅" if today_pnl > 0 else "❌" if today_pnl < 0 else "➖"
         lines.append(
             f"{p_icon} **{profile}**\n"
-            f"  Today: {today_trades}t | {today_wr:.0f}% WR | ${today_pnl/100:+.2f} | Best: {best_mkt} (${best_pnl/100:+.2f})\n"
-            f"  All-time: {at_trades}t | ${at_pnl/100:+.2f}"
+            f"  Today: {today_trades}t | {today_wr:.0f}% WR | {roi_pct(today_pnl, today_cost)} ROI | Best: {best_mkt} ({roi_pct(best_pnl, best_cost)})\n"
+            f"  All-time: {at_trades}t | {roi_pct(at_pnl, at_cost)} ROI"
         )
 
     return lines
