@@ -617,7 +617,8 @@ CREATE TABLE IF NOT EXISTS bracket_trade_log (
     exit_cents    INTEGER,
     exit_reason   TEXT,
     pnl_cents     INTEGER,
-    pnl_usd       REAL
+    pnl_usd       REAL,
+    is_live       INTEGER NOT NULL DEFAULT 0  -- 1 = real money, 0 = paper
 );
 """
 
@@ -655,6 +656,8 @@ def init_db(db_path: str) -> sqlite3.Connection:
         conn.execute("ALTER TABLE bracket_trade_log ADD COLUMN series TEXT NOT NULL DEFAULT ''")
     if "profile" not in cols:
         conn.execute("ALTER TABLE bracket_trade_log ADD COLUMN profile TEXT NOT NULL DEFAULT 'moderate'")
+    if "is_live" not in cols:
+        conn.execute("ALTER TABLE bracket_trade_log ADD COLUMN is_live INTEGER NOT NULL DEFAULT 0")
     conn.commit()
     return conn
 
@@ -726,15 +729,16 @@ def log_trade(
     exit_cents: int,
     exit_reason: str,
     pnl_cents: int,
+    is_live: bool = False,
 ) -> None:
     with _db_lock:
         conn.execute(
             """INSERT INTO bracket_trade_log
                (kalshi_ticker,series,profile,mode,side,contracts,entry_cents,
-                exit_cents,exit_reason,pnl_cents,pnl_usd)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                exit_cents,exit_reason,pnl_cents,pnl_usd,is_live)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (ticker, series, profile, mode, side, contracts_for(series), entry_cents,
-             exit_cents, exit_reason, pnl_cents, pnl_cents / 100.0),
+             exit_cents, exit_reason, pnl_cents, pnl_cents / 100.0, int(is_live)),
         )
         conn.commit()
 
@@ -1393,6 +1397,7 @@ def run_cycle(
     log_trade(
         conn, ticker, series, profile, "momentum", filled_side,
         entry_cents, exit_cents, exit_reason, pnl_cents * contracts_for(series),
+        is_live=series_is_live,
     )
 
     # Update circuit breaker counter and send Discord alert
@@ -1655,7 +1660,8 @@ def run_bracket_cycle(
             pnl_cents = exit_cents - entry_filled
             log.warning(f"[{ticker}] Bad fill exit: sold @ {exit_cents}c  PnL={pnl_cents:+}c")
             log_trade(conn, ticker, series, profile, "bracket", filled_side,
-                      entry_filled, exit_cents, "bad_fill", pnl_cents)
+                      entry_filled, exit_cents, "bad_fill", pnl_cents,
+                      is_live=series_is_live)
             record_daily_pnl(series, pnl_cents * contracts_for(series))
             break
 
@@ -1784,6 +1790,7 @@ def run_bracket_cycle(
         log_trade(
             conn, ticker, series, profile, "bracket", filled_side,
             entry_filled, exit_cents, exit_reason, pnl_cents,
+            is_live=series_is_live,
         )
         log_btc_context(
             conn, ticker, series, profile, exit_reason, pnl_cents,
