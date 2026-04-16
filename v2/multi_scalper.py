@@ -807,6 +807,17 @@ class KalshiTickerWS:
             p = self._prices.get(ticker, {})
             return p.get("yes_ask", 0), p.get("no_ask", 0)
 
+    def get_book(self, ticker: str) -> tuple[int, int, int, int]:
+        """Return (yes_bid, no_bid, yes_ask, no_ask) from cache, 0 if unknown."""
+        with self._lock:
+            p = self._prices.get(ticker, {})
+            return (
+                p.get("yes_bid", 0),
+                p.get("no_bid",  0),
+                p.get("yes_ask", 0),
+                p.get("no_ask",  0),
+            )
+
     def is_ready(self) -> bool:
         return self._ready.is_set()
 
@@ -1641,7 +1652,7 @@ def run_bracket_cycle(
         # Bad fill guard (live only) — if price moved significantly during order placement
         # and we filled below the entry band floor, exit immediately rather than holding
         # an unintended position (e.g. SOL gap from 80c → 44c between scan and fill).
-        if series_is_live and entry_filled < entry_min_c:
+        if series_is_live and entry_filled < 60:
             log.warning(
                 f"[{ticker}] BAD FILL @ {entry_filled}c (band floor {entry_min_c}c) "
                 f"— price moved during order placement, exiting immediately"
@@ -1683,10 +1694,17 @@ def run_bracket_cycle(
         exit_cents:  int = 0
         exit_reason: str = "expired"
         sl_active    = sl_c is not None  # SL only when BRACKET_SL_CENTS is set
-        fast_polling = False             # switched on when mid drops near SL alert
+
+        # Use WebSocket for live monitoring — reads from in-memory cache at 0.5s,
+        # no API calls. Falls back to REST at 2s if WS is unavailable.
+        use_ws_monitor = series_is_live and _ticker_ws is not None and _ticker_ws.is_ready()
+        if use_ws_monitor:
+            _ticker_ws.subscribe([ticker])
+            log.info(f"[{ticker}] Monitor using WebSocket @ 0.5s polling")
+        poll_interval = 0.5 if use_ws_monitor else 2
 
         while True:
-            # Check if resting TP order filled
+            # Check if resting TP order filled (REST — order status has no WS feed)
             if series_is_live and tp_order_id:
                 try:
                     tp_status, tp_filled_price = client.get_order_status(tp_order_id, filled_side)
@@ -1699,16 +1717,34 @@ def run_bracket_cycle(
                 except Exception:
                     pass
 
-            try:
-                ob = client.get_orderbook(ticker, expiry_ts)
-            except Exception as e:
-                log.warning(f"[{ticker}] Orderbook error: {e}")
-                time.sleep(2)
-                continue
+            # Get current prices — WS cache or REST orderbook
+            if use_ws_monitor:
+                yes_bid, no_bid, yes_ask, no_ask = _ticker_ws.get_book(ticker)
+                if yes_bid == 0 and no_bid == 0:
+                    # WS has no data yet — fall back to REST this tick
+                    try:
+                        ob = client.get_orderbook(ticker, expiry_ts)
+                        yes_bid = ob.yes_bid or 0
+                        no_bid  = ob.no_bid  or 0
+                        yes_ask = ob.yes_ask or 0
+                        no_ask  = ob.no_ask  or 0
+                    except Exception:
+                        time.sleep(poll_interval)
+                        continue
+                bid = yes_bid if filled_side == "yes" else no_bid
+                ask = yes_ask if filled_side == "yes" else no_ask
+                mid = (bid + ask) // 2 if (bid > 0 and ask > 0) else (bid or ask)
+            else:
+                try:
+                    ob = client.get_orderbook(ticker, expiry_ts)
+                except Exception as e:
+                    log.warning(f"[{ticker}] Orderbook error: {e}")
+                    time.sleep(poll_interval)
+                    continue
+                bid = ob.yes_bid if filled_side == "yes" else ob.no_bid
+                mid = ob.mid_yes if filled_side == "yes" else (100 - ob.mid_yes)
 
             tte = expiry_ts - time.time()
-            bid = ob.yes_bid if filled_side == "yes" else ob.no_bid
-            mid = ob.mid_yes if filled_side == "yes" else (100 - ob.mid_yes)
 
             # Paper TP check
             if not series_is_live and bid >= tp_alert_c:
@@ -1717,10 +1753,8 @@ def run_bracket_cycle(
                 log.info(f"[{ticker}] PAPER TP  bid={bid}c >= {tp_alert_c}c — exit@{sell_c}c")
                 break
 
-            # SL alert: switch to 1s polling when mid drops near SL threshold
-            if sl_active and sl_alert_c is not None and not fast_polling and mid <= sl_alert_c:
-                fast_polling = True
-                log.info(f"[{ticker}] SL alert  mid={mid}c <= {sl_alert_c}c — switching to 1s polling")
+            if sl_active and sl_alert_c is not None and mid <= sl_alert_c:
+                log.debug(f"[{ticker}] SL alert  mid={mid}c <= {sl_alert_c}c")
 
             # SL: mid dropped — cancel TP order then limit sell at sl_c (live) / exit at sl_c (paper)
             # Using limit sell instead of market sell prevents catastrophic fills
@@ -1775,7 +1809,7 @@ def run_bracket_cycle(
                 log.info(f"[{ticker}] EXPIRED  result={result}  exit@{exit_cents}c")
                 break
 
-            time.sleep(1 if fast_polling else 2)
+            time.sleep(poll_interval)
 
         pnl_cents = exit_cents - entry_filled
         sign = "+" if pnl_cents >= 0 else ""
