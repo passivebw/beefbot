@@ -329,13 +329,14 @@ PROFILES: dict[str, dict] = {
     # No SL — binary resolution or TP exit only.
     "underdog": {
         "strategy":                       "bracket",
-        "BRACKET_ENTRY_CENTS":            35,
-        "BRACKET_ENTRY_MIN_CENTS":        29,    # entry band: 29-35c
-        "BRACKET_TP_ALERT_CENTS":         97,
-        "BRACKET_SELL_CENTS":             97,
+        "BRACKET_ENTRY_CENTS":            30,
+        "BRACKET_ENTRY_MIN_CENTS":        20,    # entry band: 20-30c
+        "BRACKET_TP_ALERT_CENTS":         60,
+        "BRACKET_SELL_CENTS":             60,
         # No BRACKET_SL_CENTS — hold to TP or expiry, no stop
-        "BRACKET_WINDOW_START_SECONDS":   120,   # 2 min in (13 min left)
-        "BRACKET_WINDOW_DURATION_SECONDS": 300,  # 5 min window, cutoff at 7 min in (8 min left)
+        "BRACKET_WINDOW_START_SECONDS":   0,     # market open
+        "BRACKET_WINDOW_DURATION_SECONDS": 600,  # run until 5 min left (900-600=300s remain)
+        "BRACKET_MAX_REENTRIES":          1,     # one re-entry allowed after TP settles
         "DAILY_LOSS_LIMIT_CENTS":        -500,
         "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
@@ -1480,6 +1481,7 @@ def run_bracket_cycle(
     sl_alert_c     = cfg.get("BRACKET_SL_ALERT_CENTS", None) # fast-poll trigger
     win_start_off  = cfg["BRACKET_WINDOW_START_SECONDS"]
     win_duration   = cfg["BRACKET_WINDOW_DURATION_SECONDS"]
+    max_reentries  = cfg.get("BRACKET_MAX_REENTRIES", 0)
 
     # Each 15-min contract is 900 seconds
     contract_open_ts = expiry_ts - 900
@@ -1508,7 +1510,8 @@ def run_bracket_cycle(
     btc_at_5m_before:  Optional[float] = None
     btc_at_entry:      Optional[float] = None
 
-    round_num = 0
+    round_num     = 0
+    reentry_count = 0
     while time.time() < window_end_ts:
         if circuit_breaker_open(series) or sl_rate_breaker_open(series):
             log.info(f"[{ticker}] Circuit breaker hit — stopping bracket rounds")
@@ -1845,8 +1848,13 @@ def run_bracket_cycle(
         if exit_reason == "expired":
             break
 
-        # One trade per contract in both paper and live mode
-        log.info(f"[{ticker}] One trade per contract — done")
+        # Allow re-entry after TP if configured and window still open
+        if exit_reason == "take_profit" and reentry_count < max_reentries and time.time() < window_end_ts:
+            reentry_count += 1
+            log.info(f"[{ticker}] TP hit — re-entry {reentry_count}/{max_reentries}, scanning again")
+            continue
+
+        log.info(f"[{ticker}] Trade closed ({exit_reason}) — done")
         break
 
 
