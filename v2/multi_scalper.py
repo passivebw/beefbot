@@ -287,6 +287,8 @@ PROFILES: dict[str, dict] = {
         "BRACKET_SL_ALERT_CENTS":         43,
         "BRACKET_WINDOW_START_SECONDS":   360,   # 6 min in (9 min left)
         "BRACKET_WINDOW_DURATION_SECONDS": 300,  # 5 min window, cutoff at 11 min in
+        "BRACKET_MAX_REENTRIES":          1,
+        "CONTRACTS":                      1,
         "DAILY_LOSS_LIMIT_CENTS":        -500,
         "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
@@ -2192,8 +2194,8 @@ def stats_reporter(conn: sqlite3.Connection, stop_event: threading.Event) -> Non
 
 _SUMMARY_HOURS_ET = {8, 22}  # 8am and 10pm ET
 
-_LIVE_PROFILES  = {"late-sniper"}
-_PAPER_PROFILES = {"late-sniper-early", "mid-bracket", "expiry-hold", "momentum-ride", "underdog"}
+_LIVE_PROFILES  = {"late-sniper", "mid-bracket"}
+_PAPER_PROFILES = {"late-sniper-early", "expiry-hold", "momentum-ride", "underdog"}
 
 
 def _build_summary_section(conn: sqlite3.Connection, profiles: set, is_live: bool) -> list[str]:
@@ -2671,6 +2673,7 @@ def main() -> None:
     SL_ALERT_CENTS           = profile_cfg.get("SL_ALERT_CENTS",           SL_ALERT_CENTS)
     TIME_STOP_SECONDS        = profile_cfg.get("TIME_STOP_SECONDS",        TIME_STOP_SECONDS)
     DAILY_LOSS_LIMIT_CENTS   = profile_cfg["DAILY_LOSS_LIMIT_CENTS"]
+    CONTRACTS                = profile_cfg.get("CONTRACTS", CONTRACTS)
     SERIES_CONTRACTS.update(profile_cfg.get("SERIES_CONTRACTS", {}))
     SERIES_DAILY_LOSS_LIMIT.update(profile_cfg.get("SERIES_DAILY_LOSS_LIMIT", {}))
     LIVE_MODE                = args.live or os.environ.get("LIVE_MODE", "false").lower() == "true"
