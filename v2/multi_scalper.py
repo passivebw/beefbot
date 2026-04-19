@@ -1657,7 +1657,7 @@ def run_bracket_cycle(
         # Bad fill guard (live only) — if price moved significantly during order placement
         # and we filled below the entry band floor, exit immediately rather than holding
         # an unintended position (e.g. SOL gap from 80c → 44c between scan and fill).
-        if series_is_live and entry_filled < 60:
+        if series_is_live and entry_filled < entry_min_c:
             log.warning(
                 f"[{ticker}] BAD FILL @ {entry_filled}c (band floor {entry_min_c}c) "
                 f"— price moved during order placement, exiting immediately"
