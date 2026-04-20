@@ -23,7 +23,7 @@ jobs:
             sed -i '/^DISCORD_WEBHOOK_URL=/d' .env 2>/dev/null; echo 'DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/1486535589980541040/RI-QVhCh36cRPkQSq5bAXMMRlgAbTt_xNeH5hJ-q9XeUCOVBRTeVu308eD0eKhS3Ep0G' >> .env
 
             # Stop and disable removed/replaced profiles
-            for svc in kalshi-bot kalshi-bot-risky kalshi-bot-risky-0m kalshi-bot-risky-1m kalshi-bot-risky-2m kalshi-bot-conservative-69 kalshi-bot-conservative kalshi-bot-moderate-rr12 kalshi-bot-og-risky kalshi-bot-risky-high-early kalshi-bot-late-sniper kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-moderate kalshi-bot-mid-momentum kalshi-bot-fade kalshi-bot-late-moderate kalshi-bot-risky-high-late kalshi-bot-late-sniper-ride; do
+            for svc in kalshi-bot kalshi-bot-risky kalshi-bot-risky-0m kalshi-bot-risky-1m kalshi-bot-risky-2m kalshi-bot-conservative-69 kalshi-bot-conservative kalshi-bot-moderate-rr12 kalshi-bot-og-risky kalshi-bot-risky-high-early kalshi-bot-late-sniper kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-moderate kalshi-bot-mid-momentum kalshi-bot-fade kalshi-bot-late-moderate kalshi-bot-risky-high-late kalshi-bot-late-sniper-ride kalshi-bot-late-sniper-early; do
               systemctl stop $svc 2>/dev/null || true
               systemctl disable $svc 2>/dev/null || true
             done
@@ -31,8 +31,8 @@ jobs:
             # late-sniper-live - port 8008 - LIVE BTC only, 5 contracts, -$15 CB per series
             printf '[Unit]\nDescription=Kalshi Bot (late-sniper) LIVE BTC\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nEnvironment=PYTHONUNBUFFERED=1\nExecStart=/opt/kalshi-bot/venv/bin/python3 -u v2/multi_scalper.py --profile late-sniper --port 8008 --live --live-series KXBTC15M\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/late-sniper-live.log\nStandardError=append:/opt/kalshi-bot/logs/late-sniper-live.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-late-sniper-live.service
 
-            # late-sniper-early-live - port 8007 - LIVE DOGE+SOL+XRP, 1 contract, -$5 CB per series
-            printf '[Unit]\nDescription=Kalshi Bot (late-sniper-early) LIVE DOGE+SOL+XRP\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nEnvironment=PYTHONUNBUFFERED=1\nExecStart=/opt/kalshi-bot/venv/bin/python3 -u v2/multi_scalper.py --profile late-sniper-early --port 8007 --live --live-series KXDOGE15M,KXSOL15M,KXXRP15M\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/late-sniper-early-live.log\nStandardError=append:/opt/kalshi-bot/logs/late-sniper-early-live.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-late-sniper-early.service
+            # early-sniper - port 8007 - LIVE DOGE+SOL+XRP, 1 contract, -$5 CB per series
+            printf '[Unit]\nDescription=Kalshi Bot (early-sniper) LIVE DOGE+SOL+XRP\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nEnvironment=PYTHONUNBUFFERED=1\nExecStart=/opt/kalshi-bot/venv/bin/python3 -u v2/multi_scalper.py --profile early-sniper --port 8007 --live --live-series KXDOGE15M,KXSOL15M,KXXRP15M\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/early-sniper-live.log\nStandardError=append:/opt/kalshi-bot/logs/early-sniper-live.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-early-sniper.service
 
             # mid-bracket - port 8006 - PAPER all markets, enter 9 min left at 55-75c
             printf '[Unit]\nDescription=Kalshi Bot (mid-bracket) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile mid-bracket --port 8006\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/mid-bracket.log\nStandardError=append:/opt/kalshi-bot/logs/mid-bracket.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-mid-bracket.service
@@ -50,8 +50,8 @@ jobs:
             printf '[Unit]\nDescription=Kalshi Bot (late-sniper-day) PAPER BTC 6am-10pm ET\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nEnvironment=PYTHONUNBUFFERED=1\nExecStart=/opt/kalshi-bot/venv/bin/python3 -u v2/multi_scalper.py --profile late-sniper-day --port 8009\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/late-sniper-day.log\nStandardError=append:/opt/kalshi-bot/logs/late-sniper-day.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-late-sniper-day.service
 
             systemctl daemon-reload
-            systemctl enable kalshi-bot-late-sniper-live kalshi-bot-mid-bracket kalshi-bot-late-sniper-early kalshi-bot-expiry-hold kalshi-bot-momentum-ride kalshi-bot-underdog kalshi-bot-late-sniper-day
-            systemctl restart kalshi-bot-late-sniper-live kalshi-bot-mid-bracket kalshi-bot-late-sniper-early kalshi-bot-expiry-hold kalshi-bot-momentum-ride kalshi-bot-underdog kalshi-bot-late-sniper-day
+            systemctl enable kalshi-bot-late-sniper-live kalshi-bot-early-sniper kalshi-bot-mid-bracket kalshi-bot-expiry-hold kalshi-bot-momentum-ride kalshi-bot-underdog kalshi-bot-late-sniper-day
+            systemctl restart kalshi-bot-late-sniper-live kalshi-bot-early-sniper kalshi-bot-mid-bracket kalshi-bot-expiry-hold kalshi-bot-momentum-ride kalshi-bot-underdog kalshi-bot-late-sniper-day
 
             echo "Deploy complete: $(date)"
-            systemctl is-active kalshi-bot-late-sniper-live kalshi-bot-mid-bracket kalshi-bot-late-sniper-early kalshi-bot-expiry-hold kalshi-bot-momentum-ride kalshi-bot-underdog kalshi-bot-late-sniper-day
+            systemctl is-active kalshi-bot-late-sniper-live kalshi-bot-early-sniper kalshi-bot-mid-bracket kalshi-bot-expiry-hold kalshi-bot-momentum-ride kalshi-bot-underdog kalshi-bot-late-sniper-day

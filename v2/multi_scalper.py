@@ -277,7 +277,7 @@ PROFILES: dict[str, dict] = {
         "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
     # Paper: enter earlier (6 min left) at 75-85c — more room to TP, less gap risk
-    "late-sniper-early": {
+    "early-sniper": {
         "strategy":                       "bracket",
         "BRACKET_ENTRY_CENTS":            85,
         "BRACKET_ENTRY_MIN_CENTS":        75,    # entry band: 75-85c
@@ -2232,7 +2232,7 @@ def stats_reporter(conn: sqlite3.Connection, stop_event: threading.Event) -> Non
 
 _SUMMARY_HOURS_ET = {8, 22}  # 8am and 10pm ET
 
-_LIVE_PROFILES  = {"late-sniper", "late-sniper-early"}
+_LIVE_PROFILES  = {"late-sniper", "early-sniper"}
 _PAPER_PROFILES = {"mid-bracket", "expiry-hold", "momentum-ride", "underdog", "late-sniper-day"}
 
 
