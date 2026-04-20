@@ -271,7 +271,9 @@ PROFILES: dict[str, dict] = {
         "BRACKET_SL_ALERT_CENTS":         43,
         "BRACKET_WINDOW_START_SECONDS":   540,   # 9 min in (6 min left)
         "BRACKET_WINDOW_DURATION_SECONDS": 180,  # 3 min entry window
+        "CONTRACTS":                      1,
         "DAILY_LOSS_LIMIT_CENTS":        -500,
+        "SERIES_DAILY_LOSS_LIMIT":       {"KXDOGE15M": -500, "KXSOL15M": -500, "KXXRP15M": -500},
         "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
     # Paper: medium-certainty contracts at 55-75c with 9 min left — lower break-even WR,
@@ -2194,8 +2196,8 @@ def stats_reporter(conn: sqlite3.Connection, stop_event: threading.Event) -> Non
 
 _SUMMARY_HOURS_ET = {8, 22}  # 8am and 10pm ET
 
-_LIVE_PROFILES  = {"late-sniper", "mid-bracket"}
-_PAPER_PROFILES = {"late-sniper-early", "expiry-hold", "momentum-ride", "underdog"}
+_LIVE_PROFILES  = {"late-sniper", "late-sniper-early"}
+_PAPER_PROFILES = {"mid-bracket", "expiry-hold", "momentum-ride", "underdog"}
 
 
 def _build_summary_section(conn: sqlite3.Connection, profiles: set, is_live: bool) -> list[str]:
