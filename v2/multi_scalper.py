@@ -1114,6 +1114,25 @@ class KalshiClient:
         except Exception:
             return False
 
+    def cancel_open_orders(self, ticker: str) -> list[str]:
+        """Cancel all resting orders for a ticker. Returns list of cancelled order IDs."""
+        path = "/trade-api/v2/portfolio/orders"
+        cancelled = []
+        try:
+            r = self._http.get(
+                KALSHI_BASE_URL + "/portfolio/orders",
+                params={"ticker": ticker, "status": "resting"},
+                headers=self._auth.headers("GET", path),
+            )
+            r.raise_for_status()
+            for order in r.json().get("orders", []):
+                oid = order.get("order_id")
+                if oid and self.cancel_order(oid):
+                    cancelled.append(oid)
+        except Exception:
+            pass
+        return cancelled
+
     def close(self) -> None:
         self._http.close()
 
@@ -1641,10 +1660,17 @@ def run_bracket_cycle(
                 if not filled_side and not pending_oid:
                     time.sleep(0.05 if use_ws else ORDER_POLL_INTERVAL)
 
-            # Window closed with unfilled pending order — cancel it
+            # Window closed with unfilled pending order — cancel it with retry
             if not filled_side:
                 if pending_oid:
-                    client.cancel_order(pending_oid)
+                    for _attempt in range(3):
+                        if client.cancel_order(pending_oid):
+                            log.info(f"[{ticker}] Cancelled pending entry order {pending_oid}")
+                            break
+                        log.warning(f"[{ticker}] Cancel attempt {_attempt+1}/3 failed for {pending_oid} — retrying")
+                        time.sleep(1)
+                    else:
+                        log.error(f"[{ticker}] FAILED to cancel pending entry order {pending_oid} — stale order may remain on Kalshi")
                 log.info(f"[{ticker}] Bracket r{round_num}: window closed with no fill — done")
                 break
 
@@ -1889,6 +1915,13 @@ def run_bracket_cycle(
 
         log.info(f"[{ticker}] Trade closed ({exit_reason}) — done")
         break
+
+    # Cleanup sweep: cancel any open entry orders that escaped normal cleanup.
+    # Defends against silent cancel failures leaving stale resting orders on Kalshi.
+    if series_is_live:
+        stale = client.cancel_open_orders(ticker)
+        if stale:
+            log.warning(f"[{ticker}] Cleanup sweep cancelled {len(stale)} stale order(s): {stale}")
 
 
 # ---------------------------------------------------------------------------
