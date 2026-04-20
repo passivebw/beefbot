@@ -257,6 +257,7 @@ PROFILES: dict[str, dict] = {
         "BRACKET_SL_ALERT_CENTS":         43,
         "BRACKET_WINDOW_START_SECONDS":   660,   # start at 11 min in (last 4 min)
         "BRACKET_WINDOW_DURATION_SECONDS": 240,  # 4-min window
+        "TRADE_HOURS_ET":                (22, 6), # 10pm–6am ET only (overnight edge)
         "DAILY_LOSS_LIMIT_CENTS":       -1500,   # -$15 per series (5 contracts, BTC + ETH)
         "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
@@ -453,6 +454,19 @@ def _et_hour() -> int:
     from datetime import timedelta
     offset = timedelta(hours=-4 if _is_edt() else -5)
     return (datetime.now(timezone.utc) + offset).hour
+
+def _in_trade_window(cfg: dict) -> bool:
+    """Return True if current ET hour is within the profile's TRADE_HOURS_ET window.
+    Window is (start_hour, end_hour) inclusive of start, exclusive of end.
+    Wraps midnight when start_hour > end_hour (e.g. (22, 6) = 10pm–6am ET)."""
+    hours = cfg.get("TRADE_HOURS_ET")
+    if not hours:
+        return True
+    start_h, end_h = hours
+    h = _et_hour()
+    if start_h < end_h:
+        return start_h <= h < end_h
+    return h >= start_h or h < end_h
 
 def _send_discord(content: str) -> None:
     url = os.environ.get("DISCORD_WEBHOOK_URL", "")
@@ -2074,6 +2088,13 @@ def series_worker(
 
         log.info(f"New contract: {ticker}  tte={tte:.0f}s")
         known_ticker = ticker
+
+        # Trading hours blackout — skip entire contract if outside configured window
+        _cfg = PROFILES.get(profile, {})
+        if not _in_trade_window(_cfg):
+            log.info(f"[{ticker}] Outside TRADE_HOURS_ET window (ET hour {_et_hour():02d}) — skipping")
+            traded_tickers.add(ticker)
+            continue
 
         # Bracket profiles use their own cycle function
         if profile in BRACKET_PROFILE_NAMES:
