@@ -40,9 +40,12 @@ jobs:
             # late-sniper-day - port 8009 - PAPER BTC, same params as live but 6am-10pm ET window
             printf '[Unit]\nDescription=Kalshi Bot (late-sniper-day) PAPER BTC 6am-10pm ET\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nEnvironment=PYTHONUNBUFFERED=1\nExecStart=/opt/kalshi-bot/venv/bin/python3 -u v2/multi_scalper.py --profile late-sniper-day --port 8009\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/late-sniper-day.log\nStandardError=append:/opt/kalshi-bot/logs/late-sniper-day.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-late-sniper-day.service
 
+            # early-sniper-btc - port 8010 - PAPER BTC, 6 min left 75-85c, 10pm-6am ET (compare vs live late-sniper)
+            printf '[Unit]\nDescription=Kalshi Bot (early-sniper-btc) PAPER BTC 10pm-6am ET\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nEnvironment=PYTHONUNBUFFERED=1\nExecStart=/opt/kalshi-bot/venv/bin/python3 -u v2/multi_scalper.py --profile early-sniper-btc --port 8010\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/early-sniper-btc.log\nStandardError=append:/opt/kalshi-bot/logs/early-sniper-btc.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-early-sniper-btc.service
+
             systemctl daemon-reload
-            systemctl enable kalshi-bot-late-sniper-live kalshi-bot-early-sniper kalshi-bot-mid-bracket kalshi-bot-late-sniper-day
-            systemctl restart kalshi-bot-late-sniper-live kalshi-bot-early-sniper kalshi-bot-mid-bracket kalshi-bot-late-sniper-day
+            systemctl enable kalshi-bot-late-sniper-live kalshi-bot-early-sniper kalshi-bot-mid-bracket kalshi-bot-late-sniper-day kalshi-bot-early-sniper-btc
+            systemctl restart kalshi-bot-late-sniper-live kalshi-bot-early-sniper kalshi-bot-mid-bracket kalshi-bot-late-sniper-day kalshi-bot-early-sniper-btc
 
             echo "Deploy complete: $(date)"
-            systemctl is-active kalshi-bot-late-sniper-live kalshi-bot-early-sniper kalshi-bot-mid-bracket kalshi-bot-late-sniper-day
+            systemctl is-active kalshi-bot-late-sniper-live kalshi-bot-early-sniper kalshi-bot-mid-bracket kalshi-bot-late-sniper-day kalshi-bot-early-sniper-btc

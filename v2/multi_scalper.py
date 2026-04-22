@@ -261,6 +261,22 @@ PROFILES: dict[str, dict] = {
         "DAILY_LOSS_LIMIT_CENTS":       -1500,   # -$15 per series (5 contracts, BTC + ETH)
         "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
+    # Paper: early-sniper params on BTC overnight — 6 min left, 75-85c, 10pm-6am ET
+    # Direct comparison vs live late-sniper (4 min left, 79-85c) on same market/window
+    "early-sniper-btc": {
+        "strategy":                       "bracket",
+        "BRACKET_ENTRY_CENTS":            85,
+        "BRACKET_ENTRY_MIN_CENTS":        75,    # wider band than late-sniper (75 vs 79)
+        "BRACKET_TP_ALERT_CENTS":         97,
+        "BRACKET_SELL_CENTS":             97,
+        "BRACKET_SL_CENTS":               40,
+        "BRACKET_SL_ALERT_CENTS":         43,
+        "BRACKET_WINDOW_START_SECONDS":   540,   # 9 min in (6 min left)
+        "BRACKET_WINDOW_DURATION_SECONDS": 180,  # 3 min entry window
+        "TRADE_HOURS_ET":                (22, 6), # 10pm–6am ET only
+        "DAILY_LOSS_LIMIT_CENTS":        -500,
+        "EXCLUDED_SERIES":               {"KXETH15M", "KXSOL15M", "KXXRP15M", "KXDOGE15M", "KXBNB15M", "KXHYPE15M"},
+    },
     # Paper: same as late-sniper but trades 6am–10pm ET (US hours) for comparison
     "late-sniper-day": {
         "strategy":                       "bracket",
@@ -2266,7 +2282,7 @@ def stats_reporter(conn: sqlite3.Connection, stop_event: threading.Event) -> Non
 _SUMMARY_HOURS_ET = {8, 22}  # 8am and 10pm ET
 
 _LIVE_PROFILES  = {"late-sniper", "early-sniper"}
-_PAPER_PROFILES = {"mid-bracket", "late-sniper-day"}
+_PAPER_PROFILES = {"mid-bracket", "late-sniper-day", "early-sniper-btc"}
 
 
 def _build_summary_section(conn: sqlite3.Connection, profiles: set, is_live: bool) -> list[str]:
