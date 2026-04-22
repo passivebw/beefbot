@@ -23,7 +23,7 @@ jobs:
             sed -i '/^DISCORD_WEBHOOK_URL=/d' .env 2>/dev/null; echo 'DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/1486535589980541040/RI-QVhCh36cRPkQSq5bAXMMRlgAbTt_xNeH5hJ-q9XeUCOVBRTeVu308eD0eKhS3Ep0G' >> .env
 
             # Stop and disable removed/replaced profiles
-            for svc in kalshi-bot kalshi-bot-risky kalshi-bot-risky-0m kalshi-bot-risky-1m kalshi-bot-risky-2m kalshi-bot-conservative-69 kalshi-bot-conservative kalshi-bot-moderate-rr12 kalshi-bot-og-risky kalshi-bot-risky-high-early kalshi-bot-late-sniper kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-moderate kalshi-bot-mid-momentum kalshi-bot-fade kalshi-bot-late-moderate kalshi-bot-risky-high-late kalshi-bot-late-sniper-ride kalshi-bot-late-sniper-early; do
+            for svc in kalshi-bot kalshi-bot-risky kalshi-bot-risky-0m kalshi-bot-risky-1m kalshi-bot-risky-2m kalshi-bot-conservative-69 kalshi-bot-conservative kalshi-bot-moderate-rr12 kalshi-bot-og-risky kalshi-bot-risky-high-early kalshi-bot-late-sniper kalshi-bot-risky-low kalshi-bot-risky-mid kalshi-bot-moderate kalshi-bot-mid-momentum kalshi-bot-fade kalshi-bot-late-moderate kalshi-bot-risky-high-late kalshi-bot-late-sniper-ride kalshi-bot-late-sniper-early kalshi-bot-expiry-hold kalshi-bot-momentum-ride kalshi-bot-underdog; do
               systemctl stop $svc 2>/dev/null || true
               systemctl disable $svc 2>/dev/null || true
             done
@@ -37,21 +37,12 @@ jobs:
             # mid-bracket - port 8006 - PAPER all markets, enter 9 min left at 55-75c
             printf '[Unit]\nDescription=Kalshi Bot (mid-bracket) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile mid-bracket --port 8006\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/mid-bracket.log\nStandardError=append:/opt/kalshi-bot/logs/mid-bracket.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-mid-bracket.service
 
-            # expiry-hold - port 8005 - PAPER all markets, no SL, 62-72c entry at 8 min left
-            printf '[Unit]\nDescription=Kalshi Bot (expiry-hold) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile expiry-hold --port 8005\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/expiry-hold.log\nStandardError=append:/opt/kalshi-bot/logs/expiry-hold.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-expiry-hold.service
-
-            # momentum-ride - port 8004 - PAPER all markets, no SL, 48-62c entry at 11 min left
-            printf '[Unit]\nDescription=Kalshi Bot (momentum-ride) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile momentum-ride --port 8004\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/momentum-ride.log\nStandardError=append:/opt/kalshi-bot/logs/momentum-ride.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-momentum-ride.service
-
-            # underdog - port 8003 - PAPER all markets, no SL, 20-30c entry, full market window
-            printf '[Unit]\nDescription=Kalshi Bot (underdog) PAPER\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nExecStart=/opt/kalshi-bot/venv/bin/python3 v2/multi_scalper.py --profile underdog --port 8003\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/underdog.log\nStandardError=append:/opt/kalshi-bot/logs/underdog.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-underdog.service
-
             # late-sniper-day - port 8009 - PAPER BTC, same params as live but 6am-10pm ET window
             printf '[Unit]\nDescription=Kalshi Bot (late-sniper-day) PAPER BTC 6am-10pm ET\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/opt/kalshi-bot\nEnvironment=PYTHONUNBUFFERED=1\nExecStart=/opt/kalshi-bot/venv/bin/python3 -u v2/multi_scalper.py --profile late-sniper-day --port 8009\nRestart=on-failure\nRestartSec=10\nStandardOutput=append:/opt/kalshi-bot/logs/late-sniper-day.log\nStandardError=append:/opt/kalshi-bot/logs/late-sniper-day.log\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kalshi-bot-late-sniper-day.service
 
             systemctl daemon-reload
-            systemctl enable kalshi-bot-late-sniper-live kalshi-bot-early-sniper kalshi-bot-mid-bracket kalshi-bot-expiry-hold kalshi-bot-momentum-ride kalshi-bot-underdog kalshi-bot-late-sniper-day
-            systemctl restart kalshi-bot-late-sniper-live kalshi-bot-early-sniper kalshi-bot-mid-bracket kalshi-bot-expiry-hold kalshi-bot-momentum-ride kalshi-bot-underdog kalshi-bot-late-sniper-day
+            systemctl enable kalshi-bot-late-sniper-live kalshi-bot-early-sniper kalshi-bot-mid-bracket kalshi-bot-late-sniper-day
+            systemctl restart kalshi-bot-late-sniper-live kalshi-bot-early-sniper kalshi-bot-mid-bracket kalshi-bot-late-sniper-day
 
             echo "Deploy complete: $(date)"
-            systemctl is-active kalshi-bot-late-sniper-live kalshi-bot-early-sniper kalshi-bot-mid-bracket kalshi-bot-expiry-hold kalshi-bot-momentum-ride kalshi-bot-underdog kalshi-bot-late-sniper-day
+            systemctl is-active kalshi-bot-late-sniper-live kalshi-bot-early-sniper kalshi-bot-mid-bracket kalshi-bot-late-sniper-day

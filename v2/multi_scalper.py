@@ -2266,7 +2266,7 @@ def stats_reporter(conn: sqlite3.Connection, stop_event: threading.Event) -> Non
 _SUMMARY_HOURS_ET = {8, 22}  # 8am and 10pm ET
 
 _LIVE_PROFILES  = {"late-sniper", "early-sniper"}
-_PAPER_PROFILES = {"mid-bracket", "expiry-hold", "momentum-ride", "underdog", "late-sniper-day"}
+_PAPER_PROFILES = {"mid-bracket", "late-sniper-day"}
 
 
 def _build_summary_section(conn: sqlite3.Connection, profiles: set, is_live: bool) -> list[str]:
