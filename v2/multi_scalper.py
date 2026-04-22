@@ -695,24 +695,24 @@ def init_db(db_path: str) -> sqlite3.Connection:
 
 
 # ---------------------------------------------------------------------------
-# BTC spot price (Binance public API — no auth required)
+# BTC spot price (Kraken public API — no auth, no geo-restrictions)
 # ---------------------------------------------------------------------------
 
 _btc_price_cache: dict = {}   # {"price": float, "ts": float}
 _btc_price_lock  = threading.Lock()
 
 def get_btc_spot() -> Optional[float]:
-    """Fetch BTC/USDT spot price from Binance. Cached for 10s to avoid hammering."""
+    """Fetch BTC/USD spot price from Kraken. Cached for 10s to avoid hammering."""
     now = time.time()
     with _btc_price_lock:
         if _btc_price_cache and now - _btc_price_cache.get("ts", 0) < 10:
             return _btc_price_cache["price"]
     try:
         import urllib.request
-        url = "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
+        url = "https://api.kraken.com/0/public/Ticker?pair=XBTUSD"
         with urllib.request.urlopen(url, timeout=3) as r:
             data = json.loads(r.read())
-        price = float(data["price"])
+        price = float(data["result"]["XXBTZUSD"]["c"][0])
         with _btc_price_lock:
             _btc_price_cache["price"] = price
             _btc_price_cache["ts"]    = now
