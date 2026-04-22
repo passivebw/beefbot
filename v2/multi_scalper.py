@@ -382,7 +382,7 @@ PROFILES: dict[str, dict] = {
 ACTIVE_PROFILE = "moderate"
 
 # ---------------------------------------------------------------------------
-# Circuit breaker — per-series 24-hour rolling loss limit (live series only)
+# Circuit breaker — per-series 8-hour rolling loss limit (live series only)
 # ---------------------------------------------------------------------------
 
 _daily_pnl_lock                              = threading.Lock()
@@ -435,8 +435,8 @@ def sl_rate_breaker_open(series: str) -> bool:
         return _sl_rate_tripped.get(series, False)
 
 def circuit_breaker_open(series: str) -> bool:
-    """Return True if the per-series 24-hour rolling loss limit has been hit.
-    Resets automatically 24 hours after it was first triggered.
+    """Return True if the per-series 8-hour rolling loss limit has been hit.
+    Resets automatically 8 hours after it was first triggered.
     Only applies to live series; always returns False in paper mode."""
     if not LIVE_MODE or series not in LIVE_SERIES:
         return False
@@ -444,8 +444,8 @@ def circuit_breaker_open(series: str) -> bool:
         pnl = _daily_pnl_cents.get(series, 0)
         if pnl <= loss_limit_for(series):
             triggered = _cb_triggered_at.get(series)
-            if triggered is not None and time.time() - triggered >= 86400:
-                # 24 hrs up — reset this series
+            if triggered is not None and time.time() - triggered >= 28800:
+                # 8 hrs up — reset this series
                 _daily_pnl_cents[series]  = 0
                 _cb_triggered_at[series]  = None
                 _cb_alerted[series]       = False
@@ -1491,7 +1491,7 @@ def run_cycle(
                 _cb_alerted[series] = True
         if not already_alerted:
             tg_circuit_breaker(profile, daily_total)
-            log.warning(f"CIRCUIT BREAKER [{series}]: 24h loss limit hit ({daily_total}c) — pausing new trades for 24hrs")
+            log.warning(f"CIRCUIT BREAKER [{series}]: 8h loss limit hit ({daily_total}c) — pausing new trades for 8hrs")
 
     log.info(
         f"[{ticker}] CLOSED  side={filled_side}  entry={entry_cents}c  "
