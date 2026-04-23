@@ -272,7 +272,6 @@ PROFILES: dict[str, dict] = {
         "BRACKET_SL_ALERT_CENTS":         43,
         "BRACKET_WINDOW_START_SECONDS":   540,   # 9 min in (6 min left)
         "BRACKET_WINDOW_DURATION_SECONDS": 180,  # 3 min entry window
-        "TRADE_HOURS_ET":                (22, 6), # 10pm–6am ET only
         "DAILY_LOSS_LIMIT_CENTS":        -500,
         "EXCLUDED_SERIES":               {"KXETH15M", "KXSOL15M", "KXXRP15M", "KXDOGE15M", "KXBNB15M", "KXHYPE15M"},
     },
