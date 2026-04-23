@@ -1654,6 +1654,17 @@ def run_bracket_cycle(
 
                 # If we have a pending order, check if it filled
                 if pending_oid:
+                    # Safety: if price has crashed far below entry band, cancel immediately
+                    # to prevent stale limit filling at a terrible price
+                    pending_ask = yes_ask if pending_side == "yes" else no_ask
+                    if pending_ask > 0 and pending_ask < entry_min_c - 20:
+                        log.warning(f"[{ticker}] Price collapsed to {pending_ask}c — cancelling pending {pending_side} order {pending_oid}")
+                        client.cancel_order(pending_oid)
+                        pending_oid  = None
+                        pending_side = None
+                        time.sleep(0.05 if use_ws else ORDER_POLL_INTERVAL)
+                        continue
+
                     try:
                         status, fill_p = client.get_order_status(pending_oid, pending_side)
                         if status == "filled":
