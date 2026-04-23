@@ -272,6 +272,7 @@ PROFILES: dict[str, dict] = {
         "BRACKET_SL_ALERT_CENTS":         43,
         "BRACKET_WINDOW_START_SECONDS":   540,   # 9 min in (6 min left)
         "BRACKET_WINDOW_DURATION_SECONDS": 180,  # 3 min entry window
+        "BTC_MAX_VOL_PCT":               0.3,    # skip entry if BTC moved >0.3% in last 5 min
         "DAILY_LOSS_LIMIT_CENTS":        -500,
         "EXCLUDED_SERIES":               {"KXETH15M", "KXSOL15M", "KXXRP15M", "KXDOGE15M", "KXBNB15M", "KXHYPE15M"},
     },
@@ -714,6 +715,7 @@ def init_db(db_path: str) -> sqlite3.Connection:
 
 _btc_price_cache: dict = {}   # {"price": float, "ts": float}
 _btc_price_lock  = threading.Lock()
+_btc_price_history: list = []  # [(timestamp, price), ...] rolling ~10 min
 
 def get_btc_spot() -> Optional[float]:
     """Fetch BTC/USD spot price from Kraken. Cached for 10s to avoid hammering."""
@@ -730,9 +732,25 @@ def get_btc_spot() -> Optional[float]:
         with _btc_price_lock:
             _btc_price_cache["price"] = price
             _btc_price_cache["ts"]    = now
+            _btc_price_history.append((now, price))
+            # Keep only last 12 minutes of history
+            cutoff = now - 720
+            while _btc_price_history and _btc_price_history[0][0] < cutoff:
+                _btc_price_history.pop(0)
         return price
     except Exception:
         return None
+
+def get_btc_vol_pct(window_seconds: int = 300) -> Optional[float]:
+    """Return absolute % BTC price change over the last window_seconds. None if insufficient data."""
+    now = time.time()
+    cutoff = now - window_seconds
+    with _btc_price_lock:
+        past = next((p for ts, p in _btc_price_history if ts >= cutoff), None)
+        current = _btc_price_cache.get("price")
+    if past and current and past > 0:
+        return abs((current - past) / past * 100)
+    return None
 
 
 def log_btc_context(
@@ -1548,6 +1566,7 @@ def run_bracket_cycle(
     win_start_off  = cfg["BRACKET_WINDOW_START_SECONDS"]
     win_duration   = cfg["BRACKET_WINDOW_DURATION_SECONDS"]
     max_reentries  = cfg.get("BRACKET_MAX_REENTRIES", 0)
+    btc_max_vol    = cfg.get("BTC_MAX_VOL_PCT", None)        # None = no volatility gate
 
     # Each 15-min contract is 900 seconds
     contract_open_ts = expiry_ts - 900
@@ -1661,6 +1680,15 @@ def run_bracket_cycle(
                     trigger_side, trigger_ask = "no", no_ask
 
                 if trigger_side:
+                    if btc_max_vol is not None:
+                        vol = get_btc_vol_pct()
+                        if vol is not None and vol > btc_max_vol:
+                            log.info(f"[{ticker}] Volatility gate: BTC moved {vol:.2f}% > {btc_max_vol}% — skipping entry")
+                            trigger_side = None
+                        elif vol is None:
+                            log.debug(f"[{ticker}] Volatility gate: insufficient BTC history — allowing entry")
+
+                if trigger_side:
                     # Place taker limit at current ask — fills immediately, no resting dual-side risk
                     try:
                         oid = client.place_order(ticker, trigger_side, "limit", trigger_ask, count=contracts_for(series))
@@ -1704,13 +1732,20 @@ def run_bracket_cycle(
                 log.debug(f"[{ticker}] bracket scan r{round_num}: yes_ask={yes_ask}c no_ask={no_ask}c target<={entry_c}c")
 
                 # Fill when ask is within the entry band
-                if yes_ask > 0 and entry_min_c <= yes_ask <= entry_c:
+                _vol_ok = True
+                if btc_max_vol is not None:
+                    _v = get_btc_vol_pct()
+                    if _v is not None and _v > btc_max_vol:
+                        log.info(f"[{ticker}] Volatility gate: BTC moved {_v:.2f}% > {btc_max_vol}% — skipping entry")
+                        _vol_ok = False
+
+                if _vol_ok and yes_ask > 0 and entry_min_c <= yes_ask <= entry_c:
                     filled_side  = "yes"
                     entry_filled = yes_ask
                     btc_at_5m_before = get_btc_spot() if btc_at_5m_before is None else btc_at_5m_before
                     btc_at_entry     = get_btc_spot()
                     break
-                if no_ask > 0 and entry_min_c <= no_ask <= entry_c:
+                if _vol_ok and no_ask > 0 and entry_min_c <= no_ask <= entry_c:
                     filled_side  = "no"
                     entry_filled = no_ask
                     btc_at_5m_before = get_btc_spot() if btc_at_5m_before is None else btc_at_5m_before
