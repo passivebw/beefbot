@@ -2334,7 +2334,7 @@ def stats_reporter(conn: sqlite3.Connection, stop_event: threading.Event) -> Non
 
 _SUMMARY_HOURS_ET = {8, 22}  # 8am and 10pm ET
 
-_LIVE_PROFILES  = {"6min-sniper", "early-sniper"}
+_LIVE_PROFILES  = {"6min-sniper"}
 _PAPER_PROFILES = {"mid-bracket", "late-sniper-day", "early-sniper-btc"}
 
 
