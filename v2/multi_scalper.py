@@ -250,13 +250,14 @@ PROFILES: dict[str, dict] = {
     "late-sniper": {
         "strategy":                       "bracket",
         "BRACKET_ENTRY_CENTS":            85,
-        "BRACKET_ENTRY_MIN_CENTS":        79,    # entry band: 79-85c
-        "BRACKET_TP_ALERT_CENTS":         97,    # TP at 97c — lock in profit, don't ride expiry cliff
+        "BRACKET_ENTRY_MIN_CENTS":        75,    # entry band: 75-85c (matches late-sniper-early params)
+        "BRACKET_TP_ALERT_CENTS":         97,
         "BRACKET_SELL_CENTS":             97,
-        "BRACKET_SL_CENTS":               40,   # fixed SL — caps worst case at -47c
+        "BRACKET_SL_CENTS":               40,
         "BRACKET_SL_ALERT_CENTS":         43,
-        "BRACKET_WINDOW_START_SECONDS":   660,   # start at 11 min in (last 4 min)
-        "BRACKET_WINDOW_DURATION_SECONDS": 240,  # 4-min window
+        "BRACKET_WINDOW_START_SECONDS":   540,   # 9 min in (6 min left)
+        "BRACKET_WINDOW_DURATION_SECONDS": 180,  # 3-min window
+        "BTC_MAX_VOL_PCT":               0.3,    # skip entry if BTC moved >0.3% in last 5 min
         "DAILY_LOSS_LIMIT_CENTS":       -1500,   # -$15 per series (5 contracts, 8hr CB)
         "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
