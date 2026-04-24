@@ -1663,16 +1663,7 @@ def run_bracket_cycle(
                         time.sleep(0.05 if use_ws else ORDER_POLL_INTERVAL)
                         continue
 
-                    # Cancel if order hasn't filled within 10s — it's resting and could fill later at wrong price
-                    if pending_placed_ts and time.time() - pending_placed_ts > 10:
-                        log.warning(f"[{ticker}] Entry order {pending_oid} unfilled after 10s — cancelling to avoid stale fill")
-                        client.cancel_order(pending_oid)
-                        pending_oid  = None
-                        pending_side = None
-                        pending_placed_ts = None
-                        time.sleep(0.05 if use_ws else ORDER_POLL_INTERVAL)
-                        continue
-
+                    # Always check fill status FIRST before considering timeout cancel
                     try:
                         status, fill_p = client.get_order_status(pending_oid, pending_side)
                         if status == "filled":
@@ -1685,8 +1676,21 @@ def run_bracket_cycle(
                             pending_oid  = None
                             pending_side = None
                             pending_placed_ts = None
+                            time.sleep(0.05 if use_ws else ORDER_POLL_INTERVAL)
+                            continue
                     except Exception:
                         pass
+
+                    # Cancel if order still resting after 10s
+                    if pending_placed_ts and time.time() - pending_placed_ts > 10:
+                        log.warning(f"[{ticker}] Entry order {pending_oid} unfilled after 10s — cancelling to avoid stale fill")
+                        client.cancel_order(pending_oid)
+                        pending_oid  = None
+                        pending_side = None
+                        pending_placed_ts = None
+                        time.sleep(0.05 if use_ws else ORDER_POLL_INTERVAL)
+                        continue
+
                     time.sleep(0.05 if use_ws else ORDER_POLL_INTERVAL)
                     continue
 
