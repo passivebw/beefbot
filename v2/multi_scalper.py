@@ -240,14 +240,10 @@ PROFILES: dict[str, dict] = {
         "EXCLUDED_SERIES":               {"KXHYPE15M", "KXBNB15M"},
     },
     # ------------------------------------------------------------------
-    # late-sniper — inspired by Telegram community data from competing
-    # bot users. Enter only when one side is already at 82-87c (strong
-    # conviction), last 4 min of contract. Both YES+NO attempted but
-    # only the dominant side will be in the entry band.
-    # Entry band: [82c, 87c]. TP at 93c (+6c). SL at 70c (-17c max).
-    # BTC-only initially — skip low-volume alts.
+    # 6min-sniper — enters with 6 min left at 75-85c across all 5 markets.
+    # Derived from late-sniper-early paper (2,051 trades, 69.9% WR, +$14.96).
     # ------------------------------------------------------------------
-    "late-sniper": {
+    "6min-sniper": {
         "strategy":                       "bracket",
         "BRACKET_ENTRY_CENTS":            85,
         "BRACKET_ENTRY_MIN_CENTS":        75,    # entry band: 75-85c (matches late-sniper-early params)
@@ -2338,7 +2334,7 @@ def stats_reporter(conn: sqlite3.Connection, stop_event: threading.Event) -> Non
 
 _SUMMARY_HOURS_ET = {8, 22}  # 8am and 10pm ET
 
-_LIVE_PROFILES  = {"late-sniper", "early-sniper"}
+_LIVE_PROFILES  = {"6min-sniper", "early-sniper"}
 _PAPER_PROFILES = {"mid-bracket", "late-sniper-day", "early-sniper-btc"}
 
 
