@@ -1625,8 +1625,9 @@ def run_bracket_cycle(
                 log.debug(f"[{ticker}] Using WebSocket feed for entry scan")
 
             _ws_zero_streak = 0  # consecutive 0,0 reads before falling back to REST
-            pending_oid:  Optional[str] = None
-            pending_side: Optional[str] = None
+            pending_oid:       Optional[str]   = None
+            pending_side:      Optional[str]   = None
+            pending_placed_ts: Optional[float] = None
 
             while time.time() < window_end_ts and not filled_side:
                 if use_ws:
@@ -1654,14 +1655,24 @@ def run_bracket_cycle(
 
                 # If we have a pending order, check if it filled
                 if pending_oid:
-                    # Safety: if price has crashed far below entry band, cancel immediately
-                    # to prevent stale limit filling at a terrible price
+                    # Cancel if price crashed below band — prevents stale fill at garbage price
                     pending_ask = yes_ask if pending_side == "yes" else no_ask
                     if pending_ask > 0 and pending_ask < entry_min_c - 20:
                         log.warning(f"[{ticker}] Price collapsed to {pending_ask}c — cancelling pending {pending_side} order {pending_oid}")
                         client.cancel_order(pending_oid)
                         pending_oid  = None
                         pending_side = None
+                        pending_placed_ts = None
+                        time.sleep(0.05 if use_ws else ORDER_POLL_INTERVAL)
+                        continue
+
+                    # Cancel if order hasn't filled within 10s — it's resting and could fill later at wrong price
+                    if pending_placed_ts and time.time() - pending_placed_ts > 10:
+                        log.warning(f"[{ticker}] Entry order {pending_oid} unfilled after 10s — cancelling to avoid stale fill")
+                        client.cancel_order(pending_oid)
+                        pending_oid  = None
+                        pending_side = None
+                        pending_placed_ts = None
                         time.sleep(0.05 if use_ws else ORDER_POLL_INTERVAL)
                         continue
 
@@ -1674,9 +1685,9 @@ def run_bracket_cycle(
                             log.info(f"[{ticker}] FILLED: {filled_side.upper()} @ {entry_filled}c")
                             break
                         elif status == "canceled":
-                            # Order was rejected/canceled — re-scan
-                            pending_oid = None
+                            pending_oid  = None
                             pending_side = None
+                            pending_placed_ts = None
                     except Exception:
                         pass
                     time.sleep(0.05 if use_ws else ORDER_POLL_INTERVAL)
@@ -1704,8 +1715,9 @@ def run_bracket_cycle(
                     try:
                         oid = client.place_order(ticker, trigger_side, "limit", trigger_ask, count=contracts_for(series))
                         if oid:
-                            pending_oid  = oid
-                            pending_side = trigger_side
+                            pending_oid      = oid
+                            pending_side     = trigger_side
+                            pending_placed_ts = time.time()
                             log.info(f"[{ticker}] {trigger_side.upper()} ask={trigger_ask}c in band — BUY limit @ {trigger_ask}c x{contracts_for(series)}  id={oid}")
                     except Exception as e:
                         log.warning(f"[{ticker}] Entry order error: {e}")
