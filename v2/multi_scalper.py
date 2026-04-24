@@ -747,7 +747,7 @@ def get_btc_vol_pct(window_seconds: int = 300) -> Optional[float]:
     now = time.time()
     cutoff = now - window_seconds
     with _btc_price_lock:
-        past = next((p for ts, p in _btc_price_history if ts >= cutoff), None)
+        past = next((p for ts, p in reversed(_btc_price_history) if ts <= cutoff), None)
         current = _btc_price_cache.get("price")
     if past and current and past > 0:
         return abs((current - past) / past * 100)
